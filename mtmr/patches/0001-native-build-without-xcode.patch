@@ -1,0 +1,131 @@
+--- a/AppDelegate.swift
++++ b/AppDelegate.swift
+@@ -7,9 +7,7 @@
+ //
+ 
+ import Cocoa
+-import Sparkle
+ 
+-@NSApplicationMain
+ class AppDelegate: NSObject, NSApplicationDelegate {
+     let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+     var isBlockedApp: Bool = false
+@@ -17,17 +15,12 @@
+     private var fileSystemSource: DispatchSourceFileSystemObject?
+ 
+     func applicationDidFinishLaunching(_: Notification) {
+-        // Configure Sparkle
+-        SUUpdater.shared().automaticallyDownloadsUpdates = false
+-        SUUpdater.shared().automaticallyChecksForUpdates = true
+-        SUUpdater.shared().checkForUpdatesInBackground()
+-
+         AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeRetainedValue() as NSString: true] as NSDictionary)
+ 
+         TouchBarController.shared.setupControlStripPresence()
+ 
+         if let button = statusItem.button {
+-            button.image = #imageLiteral(resourceName: "StatusImage")
++            button.image = bundledImage("StatusImage")
+         }
+         createMenu()
+ 
+@@ -134,7 +127,6 @@
+ 
+         menu.addItem(withTitle: "Preferences", action: #selector(openPreferences(_:)), keyEquivalent: ",")
+         menu.addItem(withTitle: "Open preset", action: #selector(openPreset(_:)), keyEquivalent: "O")
+-        menu.addItem(withTitle: "Check for Updates...", action: #selector(SUUpdater.checkForUpdates(_:)), keyEquivalent: "").target = SUUpdater.shared()
+ 
+         menu.addItem(NSMenuItem.separator())
+         menu.addItem(settingSeparator)
+--- a/ItemsParsing.swift
++++ b/ItemsParsing.swift
+@@ -75,7 +75,7 @@
+         ) },
+ 
+         "brightnessUp": { _ in
+-            let imageParameter = GeneralParameter.image(source: #imageLiteral(resourceName: "brightnessUp"))
++            let imageParameter = GeneralParameter.image(source: bundledImage("brightnessUp"))
+             return (
+                 item: .staticButton(title: ""),
+                 actions: [
+@@ -88,7 +88,7 @@
+         },
+ 
+         "brightnessDown": { _ in
+-            let imageParameter = GeneralParameter.image(source: #imageLiteral(resourceName: "brightnessDown"))
++            let imageParameter = GeneralParameter.image(source: bundledImage("brightnessDown"))
+             return (
+                 item: .staticButton(title: ""),
+                 actions: [
+@@ -101,7 +101,7 @@
+         },
+ 
+         "illuminationUp": { _ in
+-            let imageParameter = GeneralParameter.image(source: #imageLiteral(resourceName: "ill_up"))
++            let imageParameter = GeneralParameter.image(source: bundledImage("ill_up"))
+             return (
+                 item: .staticButton(title: ""),
+                 actions: [
+@@ -114,7 +114,7 @@
+         },
+ 
+         "illuminationDown": { _ in
+-            let imageParameter = GeneralParameter.image(source: #imageLiteral(resourceName: "ill_down"))
++            let imageParameter = GeneralParameter.image(source: bundledImage("ill_down"))
+             return (
+                 item: .staticButton(title: ""),
+                 actions: [
+--- a/TouchBarController.swift
++++ b/TouchBarController.swift
+@@ -288,7 +288,7 @@
+     @objc func setupControlStripPresence() {
+         DFRSystemModalShowsCloseBoxWhenFrontMost(false)
+         let item = NSCustomTouchBarItem(identifier: .controlStripItem)
+-        item.view = NSButton(image: #imageLiteral(resourceName: "StatusImage"), target: self, action: #selector(presentTouchBar))
++        item.view = NSButton(image: bundledImage("StatusImage"), target: self, action: #selector(presentTouchBar))
+         NSTouchBarItem.addSystemTrayItem(item)
+         updateControlStripPresence()
+     }
+--- a/Widgets/CPUBarItem.swift
++++ b/Widgets/CPUBarItem.swift
+@@ -19,7 +19,7 @@
+                 
+         // Set default image
+         if self.image == nil {
+-            self.image = #imageLiteral(resourceName: "cpu").resize(maxSize: NSSize(width: 24, height: 24));
++            self.image = bundledImage("cpu").resize(maxSize: NSSize(width: 24, height: 24));
+         }
+         
+         // Set default action
+--- a/Widgets/DnDBarItem.swift
++++ b/Widgets/DnDBarItem.swift
+@@ -33,7 +33,7 @@
+     }
+ 
+     @objc func refresh() {
+-        image = DoNotDisturb.isEnabled ? #imageLiteral(resourceName: "dnd-on") : #imageLiteral(resourceName: "dnd-off")
++        image = DoNotDisturb.isEnabled ? bundledImage("dnd-on") : bundledImage("dnd-off")
+     }
+ }
+ 
+--- a/Widgets/DarkModeBarItem.swift
++++ b/Widgets/DarkModeBarItem.swift
+@@ -28,7 +28,7 @@
+     }
+ 
+     @objc func refresh() {
+-        image = DarkMode.isEnabled ? #imageLiteral(resourceName: "dark-mode-on") : #imageLiteral(resourceName: "dark-mode-off")
++        image = DarkMode.isEnabled ? bundledImage("dark-mode-on") : bundledImage("dark-mode-off")
+     }
+ }
+ 
+--- a/Widgets/NightShiftBarItem.swift
++++ b/Widgets/NightShiftBarItem.swift
+@@ -48,6 +48,6 @@
+     }
+ 
+     @objc func refresh() {
+-        image = isNightShiftEnabled ? #imageLiteral(resourceName: "nightShiftOn") : #imageLiteral(resourceName: "nightShiftOff")
++        image = isNightShiftEnabled ? bundledImage("nightShiftOn") : bundledImage("nightShiftOff")
+     }
+ }

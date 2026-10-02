@@ -1,0 +1,64 @@
+[
+  // ===== LEFT: fixed =====
+  { "type": "escape", "align": "left", "width": 64 },
+
+  // ===== CENTER: scrolls. Items with matchAppId only exist while that app is frontmost =====
+  { "type": "staticButton", "title": "ALL APPS", "align": "center", "width": 90, "background": "#3a3a3c" },
+
+  // kitty: 8 items on purpose, to test scrolling
+  { "type": "staticButton", "title": "tmux",  "align": "center", "matchAppId": "kitty", "background": "#1f5fbf" },
+  { "type": "staticButton", "title": "split", "align": "center", "matchAppId": "kitty", "background": "#1f5fbf" },
+  { "type": "staticButton", "title": "pane",  "align": "center", "matchAppId": "kitty", "background": "#1f5fbf" },
+  { "type": "staticButton", "title": "win",   "align": "center", "matchAppId": "kitty", "background": "#1f5fbf" },
+  { "type": "staticButton", "title": "copy",  "align": "center", "matchAppId": "kitty", "background": "#1f5fbf" },
+  { "type": "staticButton", "title": "zoom",  "align": "center", "matchAppId": "kitty", "background": "#1f5fbf" },
+  { "type": "staticButton", "title": "next",  "align": "center", "matchAppId": "kitty", "background": "#1f5fbf" },
+  { "type": "staticButton", "title": "prev",  "align": "center", "matchAppId": "kitty", "background": "#1f5fbf" },
+
+  { "type": "staticButton", "title": "FINDER", "align": "center", "matchAppId": "com.apple.finder", "background": "#8a5a00" },
+  { "type": "staticButton", "title": "new",    "align": "center", "matchAppId": "com.apple.finder", "background": "#8a5a00" },
+  { "type": "staticButton", "title": "tag",    "align": "center", "matchAppId": "com.apple.finder", "background": "#8a5a00" },
+
+  { "type": "staticButton", "title": "TEAMS", "align": "center", "matchAppId": "teams", "background": "#5b4bb5" },
+  { "type": "staticButton", "title": "chat",  "align": "center", "matchAppId": "teams", "background": "#5b4bb5" },
+  { "type": "staticButton", "title": "cal",   "align": "center", "matchAppId": "teams", "background": "#5b4bb5" },
+
+  { "type": "staticButton", "title": "CODE",  "align": "center", "matchAppId": "VSCode", "background": "#0a7a5a" },
+  { "type": "staticButton", "title": "build", "align": "center", "matchAppId": "VSCode", "background": "#0a7a5a" },
+  { "type": "staticButton", "title": "test",  "align": "center", "matchAppId": "VSCode", "background": "#0a7a5a" },
+  { "type": "staticButton", "title": "git",   "align": "center", "matchAppId": "VSCode", "background": "#0a7a5a" },
+
+  // ===== RIGHT: fixed, always there =====
+  {
+    // Teams mic: green = unmuted, red = muted, yellow = cannot read state, HIDDEN when not in a call. Tap toggles mute.
+    "type": "shellScriptTitledButton",
+    "align": "right",
+    "width": 76,
+    "refreshInterval": 1,
+    "source": { "filePath": "/Users/maxday/Workspace/projects/maxlaptopmtmr/touchbar-interface/experiments/mic-status.sh" },
+    "actions": [
+      {
+        "trigger": "singleTap",
+        "action": "shellScript",
+        "executablePath": "/Users/maxday/Workspace/projects/maxlaptopmtmr/touchbar-interface/teams/teams-mute",
+        "shellArguments": ["toggle"]
+      }
+    ]
+  },
+  {
+    // Drill-down pattern: tap opens a sub-bar, the close button returns.
+    "type": "group",
+    "title": "tools",
+    "align": "right",
+    "items": [
+      { "type": "staticButton", "title": "tool 1", "background": "#444444" },
+      { "type": "staticButton", "title": "tool 2", "background": "#444444" },
+      { "type": "staticButton", "title": "tool 3", "background": "#444444" },
+      { "type": "close", "width": 64 }
+    ]
+  },
+  { "type": "volumeDown", "bordered": false, "align": "right", "width": 28 },
+  { "type": "volumeUp", "bordered": false, "align": "right", "width": 28 },
+  { "type": "battery", "align": "right", "bordered": false },
+  { "type": "timeButton", "formatTemplate": "HH:mm", "align": "right", "bordered": false }
+]
