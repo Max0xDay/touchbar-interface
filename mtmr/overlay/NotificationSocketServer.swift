@@ -23,10 +23,7 @@ final class NotificationSocketServer {
         let seconds: Double?
     }
 
-    private struct Reply: Encodable {
-        let ok: Bool
-        let error: String?
-    }
+    private typealias Reply = [String: Any]
 
     private let queue = DispatchQueue(label: "MTMRNotificationSocket")
     private let socketPath = appSupportDirectory + "/mtmr.sock"
@@ -237,24 +234,35 @@ final class NotificationSocketServer {
                 }
             case "clear":
                 NotificationStore.shared.clear()
+            case "button":
+                guard let fields = try JSONSerialization.jsonObject(with: line) as? [String: Any] else {
+                    return rejected("Invalid JSON command")
+                }
+                do {
+                    try LiveButtonStore.shared.update(fields)
+                } catch {
+                    return rejected(error.localizedDescription)
+                }
+            case "buttons":
+                return ["ok": true, "buttons": LiveButtonStore.shared.buttons()]
             default:
                 return rejected("Unknown command: \(command.cmd)")
             }
-            return Reply(ok: true, error: nil)
+            return ["ok": true]
         } catch {
             NSLog("MTMR socket invalid JSON: %@", String(describing: error))
-            return Reply(ok: false, error: "Invalid JSON command")
+            return ["ok": false, "error": "Invalid JSON command"]
         }
     }
 
     private func rejected(_ message: String) -> Reply {
         NSLog("MTMR socket command rejected: %@", message)
-        return Reply(ok: false, error: message)
+        return ["ok": false, "error": message]
     }
 
     private func send(_ reply: Reply, to client: Client) {
         do {
-            var replyBytes = try JSONEncoder().encode(reply)
+            var replyBytes = try JSONSerialization.data(withJSONObject: reply)
             replyBytes.append(10)
             var sent = 0
             while sent < replyBytes.count {

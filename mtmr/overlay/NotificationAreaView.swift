@@ -1,6 +1,6 @@
 import Cocoa
 
- enum NotificationDebug {
+enum NotificationDebug {
     static var enabled = true
 
     static func hierarchy(_ view: NSView) {
@@ -19,9 +19,11 @@ final class NotificationAreaView: NSView {
     private let label = NSTextField(labelWithString: "")
     private let maxChars: Int
     private let fadeSeconds: Double
-    private let inset: CGFloat = 12
-    private let font = NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)
+    private let inset = CGFloat(NotificationTextMetrics.innerInset)
+    private let font = NSFont.monospacedSystemFont(ofSize: CGFloat(NotificationTextMetrics.fontSize), weight: .regular)
     private var text = ""
+    private var targetText = ""
+    private var movedDuringSwipe = false
     private var pendingTransition: DispatchWorkItem?
     private var transitionGeneration = 0
     private var activeTouch: NSTouch?
@@ -80,6 +82,11 @@ final class NotificationAreaView: NSView {
         }
     }
 
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
+    }
+
     override func layout() {
         super.layout()
         let labelHeight = min(bounds.height, ceil(font.ascender - font.descender + font.leading) + 2)
@@ -100,9 +107,13 @@ final class NotificationAreaView: NSView {
         let glyphWidth = ("M" as NSString).size(withAttributes: [.font: font]).width
         let capacity = NotificationTextMetrics.capacity(width: Double(bounds.width), inset: Double(inset), glyphWidth: Double(glyphWidth), maxChars: maxChars)
         let nextText = NotificationTextMetrics.truncated(text, capacity: capacity)
-        if pendingTransition == nil {
+        if animated {
+            guard nextText != targetText else { return }
+        } else if pendingTransition == nil {
             guard nextText != label.stringValue else { return }
         }
+        targetText = nextText
+        let currentOpacity = label.layer?.presentation()?.opacity ?? label.layer?.opacity ?? 1
         transitionGeneration += 1
         let generation = transitionGeneration
         pendingTransition?.cancel()
@@ -122,7 +133,7 @@ final class NotificationAreaView: NSView {
             return
         }
         let duration = reduceMotion ? 0.15 : (nextText.isEmpty ? 0.25 : 0.12)
-        animateOpacity(from: 1, to: 0, seconds: duration, timing: .easeIn)
+        animateOpacity(from: currentOpacity, to: 0, seconds: duration, timing: .easeIn)
         let transition = DispatchWorkItem { [weak self] in
             guard let self = self else { return }
             guard self.transitionGeneration == generation else { return }
@@ -178,6 +189,9 @@ final class NotificationAreaView: NSView {
 
     private func receiveTouches(_ event: NSEvent, phase: NSTouch.Phase, state: String) {
         let touches = event.touches(matching: phase, in: self).filter { $0.type == .direct }
+        if NotificationDebug.enabled {
+            NSLog("MTMR-notif: event state=%@ directTouches=%ld", state, touches.count)
+        }
         for touch in touches {
             let location = touch.location(in: self)
             if NotificationDebug.enabled {
@@ -189,17 +203,17 @@ final class NotificationAreaView: NSView {
                     return
                 }
                 activeTouch = touch
+                movedDuringSwipe = false
                 initialLocation = location
                 latestLocation = location
                 NotificationStore.shared.pause()
             } else if let activeTouch = activeTouch {
                 guard activeTouch.identity.isEqual(touch.identity) else { continue }
                 latestLocation = location
+                if phase != .cancelled {
+                    navigateSwipe()
+                }
                 if phase == .ended {
-                    let displacement = latestLocation.y - initialLocation.y
-                    if abs(displacement) >= 3 {
-                        NotificationStore.shared.move(by: displacement > 0 ? 1 : -1)
-                    }
                     finishSwipe()
                 } else if phase == .cancelled {
                     finishSwipe()
@@ -207,6 +221,14 @@ final class NotificationAreaView: NSView {
             }
         }
         if phase == .cancelled { finishSwipe() }
+    }
+
+    private func navigateSwipe() {
+        guard !movedDuringSwipe else { return }
+        let offset = NotificationSwipe.offset(horizontal: Double(latestLocation.x - initialLocation.x), vertical: Double(latestLocation.y - initialLocation.y))
+        guard offset != 0 else { return }
+        movedDuringSwipe = true
+        NotificationStore.shared.move(by: offset)
     }
 
     private func finishSwipe() {

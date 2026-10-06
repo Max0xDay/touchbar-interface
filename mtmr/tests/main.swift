@@ -24,7 +24,9 @@ func checkNotificationStore() {
     store.move(by: -1)
     precondition(store.text == "oldest", "Down selects previous queued entry")
     store.move(by: -1)
-    precondition(store.text == "oldest", "Navigation must clamp at queue ends")
+    precondition(store.text == "newer", "Navigation must wrap from the first entry to the last")
+    store.move(by: 1)
+    precondition(store.text == "oldest", "Navigation must wrap from the last entry to the first")
     store.resume()
     advance(seconds: 0.1)
     precondition(store.text == "newer", "Expiry must remove current and select next")
@@ -50,6 +52,14 @@ func checkNotificationStore() {
 }
 
 checkNotificationStore()
+let liveButtonView = NSButton(frame: NSRect(x: 0, y: 0, width: 75, height: 30))
+let liveDefinition = try JSONDecoder().decode(LiveButtonDefinition.self, from: Data(##"{"id":"fixture-mic","icon":"mic.fill","tint":"#8e8e93"}"##.utf8))
+LiveButtonStore.shared.bind(definition: liveDefinition, view: liveButtonView, image: nil, background: nil) { image, tint, background, visible in
+    liveButtonView.image = image
+    liveButtonView.contentTintColor = tint
+    liveButtonView.bezelColor = background
+    liveButtonView.isEnabled = visible
+}
 NotificationSocketServer.shared.start()
 let stopPath = testDirectory + "/stop"
 let deadline = Date(timeIntervalSinceNow: 20)

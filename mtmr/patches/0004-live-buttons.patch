@@ -1,0 +1,168 @@
+--- a/ItemsParsing.swift
++++ b/ItemsParsing.swift
+@@ -3,13 +3,22 @@
+ 
+ extension Data {
+     func barItemDefinitions() -> [BarItemDefinition]? {
+-           return try! JSONDecoder().decode([BarItemDefinition].self, from: utf8string!.stripComments().data(using: .utf8)!)
++        do {
++            guard let text = utf8string, let bytes = text.stripComments().data(using: .utf8) else { return nil }
++            let definitions = try JSONDecoder().decode([BarItemDefinition].self, from: bytes)
++            try validateLiveButtonIds(definitions)
++            return definitions
++        } catch {
++            NSLog("MTMR layout rejected: %@", String(describing: error))
++            return nil
++        }
+     }
+ }
+ 
+ struct BarItemDefinition: Decodable {
+     let type: ItemType
+     let isExitButton: Bool
++    var liveButton: LiveButtonDefinition?
+     let actions: [Action]
+     let legacyAction: LegacyActionType
+     let legacyLongAction: LegacyLongActionType
+@@ -30,6 +39,7 @@
+     }
+ 
+     init(from decoder: Decoder) throws {
++        let liveButton = try LiveButtonDefinition(from: decoder)
+         let container = try decoder.container(keyedBy: CodingKeys.self)
+         let type = try container.decode(String.self, forKey: .type)
+         let actions = try container.decodeIfPresent([Action].self, forKey: .actions)
+@@ -43,9 +53,24 @@
+         } else {
+             self.init(type: .staticButton(title: "unknown"), actions: [], action: .none, legacyLongAction: .none, additionalParameters: additionalParameters)
+         }
++        self.liveButton = liveButton
+     }
+ }
+ 
++func validateLiveButtonIds(_ definitions: [BarItemDefinition]) throws {
++    var ids = Set<String>()
++    try collectLiveButtonIds(definitions, ids: &ids)
++}
++
++private func collectLiveButtonIds(_ definitions: [BarItemDefinition], ids: inout Set<String>) throws {
++    for definition in definitions {
++        if let id = definition.liveButton?.id {
++            guard ids.insert(id).inserted else { throw LiveButtonError(message: "duplicate button id: \(id)") }
++        }
++        if case let .group(items) = definition.type { try collectLiveButtonIds(items, ids: &ids) }
++    }
++}
++
+ typealias ParametersDecoder = (Decoder) throws -> (
+     item: ItemType,
+     actions: [Action],
+--- a/TouchBarController.swift
++++ b/TouchBarController.swift
+@@ -135,6 +135,12 @@
+     }
+ 
+     func createAndUpdatePreset(newJsonItems: [BarItemDefinition]) {
++        do {
++            try validateLiveButtonIds(newJsonItems)
++        } catch {
++            NSLog("MTMR layout rejected: %@", String(describing: error))
++            return
++        }
+         if let oldBar = self.touchBar {
+             minimizeSystemModal(oldBar)
+         }
+@@ -180,8 +186,12 @@
+         let changed = didItemsChange(prevItems: prevItems, prevSwipeItems: prevSwipeItems)
+ 
+         if !changed {
++            items = prevItems
++            swipeItems = prevSwipeItems
++            bindLiveButtons()
+             return
+         }
++        bindLiveButtons()
+         
+         let centerItems = centerIdentifiers.compactMap({ (identifier) -> NSTouchBarItem? in
+             items[identifier]
+@@ -249,7 +259,10 @@
+ 
+     func reloadPreset(path: String) {
+         lastPresetPath = path
+-        let items = path.fileData?.barItemDefinitions() ?? [BarItemDefinition(type: .staticButton(title: "bad preset"), actions: [], action: .none, legacyLongAction: .none, additionalParameters: [:])]
++        guard let items = path.fileData?.barItemDefinitions() else {
++            NSLog("MTMR layout rejected; keeping previous preset")
++            return
++        }
+         createAndUpdatePreset(newJsonItems: items)
+     }
+ 
+@@ -270,6 +283,16 @@
+             if item.align == .center {
+                 centerIdentifiers.append(identifier)
+             }
++        }
++    }
++
++    private func bindLiveButtons() {
++        LiveButtonStore.shared.beginRebuild()
++        for (identifier, item) in items {
++            guard let definition = itemDefinitions[identifier] else { continue }
++            guard let liveButton = definition.liveButton else { continue }
++            if let button = item as? CustomButtonTouchBarItem { button.bindLiveState(liveButton) }
++            if let group = item as? GroupBarItem { group.bindLiveState(liveButton) }
+         }
+     }
+ 
+--- a/CustomButtonTouchBarItem.swift
++++ b/CustomButtonTouchBarItem.swift
+@@ -30,6 +30,8 @@
+         }
+     }
+     var finishViewConfiguration: ()->() = {}
++    var liveVisible = true
++    var liveLayoutDefaults: (image: NSImage?, background: NSColor?, title: String)?
+     
+     private var button: NSButton!
+     private var longClick: LongPressGestureRecognizer!
+@@ -136,6 +138,7 @@
+     }
+     
+     func callActions(for trigger: Action.Trigger) {
++        guard liveVisible else { return }
+         let itemActions = self.actions.filter { $0.trigger == trigger }
+         for itemAction in itemActions {
+             itemAction.closure?()
+--- a/Widgets/GroupBarItem.swift
++++ b/Widgets/GroupBarItem.swift
+@@ -9,6 +9,8 @@
+ 
+ class GroupBarItem: NSPopoverTouchBarItem, NSTouchBarDelegate {
+     var jsonItems: [BarItemDefinition]
++    var liveVisible = true
++    var liveLayoutDefaults: (image: NSImage?, background: NSColor?, title: String)?
+ 
+     var itemDefinitions: [NSTouchBarItem.Identifier: BarItemDefinition] = [:]
+     var items: [NSTouchBarItem.Identifier: NSTouchBarItem] = [:]
+@@ -32,6 +34,7 @@
+     deinit {}
+ 
+     @objc override func showPopover(_: Any?) {
++        guard liveVisible else { return }
+         itemDefinitions = [:]
+         items = [:]
+         leftIdentifiers = []
+@@ -94,7 +97,12 @@
+ 
+     func createItems() {
+         for (identifier, definition) in itemDefinitions {
+-            items[identifier] = TouchBarController.shared.createItem(forIdentifier: identifier, definition: definition)
++            let item = TouchBarController.shared.createItem(forIdentifier: identifier, definition: definition)
++            items[identifier] = item
++            if let liveButton = definition.liveButton {
++                if let button = item as? CustomButtonTouchBarItem { button.bindLiveState(liveButton) }
++                if let group = item as? GroupBarItem { group.bindLiveState(liveButton) }
++            }
+         }
+     }
+ }

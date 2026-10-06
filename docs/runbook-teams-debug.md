@@ -56,6 +56,12 @@ Exit codes: `0` ok, `1` error, `3` debug port not reachable, `4` not in a call. 
 
 Only the mic button's label is read. No page content, messages or tokens are read, printed or stored.
 
+For the live Touch Bar mic, `teams/teams-watch` polls this status and updates one
+id-bearing button through MTMR's socket (green unmuted, red muted, yellow unreadable,
+hidden/collapsed outside a call). Manual background use, fake-test options, the
+absolute-path tap action and an uninstalled LaunchAgent illustration are documented
+in [live-buttons.md](live-buttons.md). No Teams restart is required for the watcher.
+
 ## Known limits
 
 - **Call end is detected by the mic button disappearing.** If you only close the meeting window, Teams can keep the call alive and `status` keeps answering. Leaving the call is the reliable end. The call page also has a `Leave` button (`data-tid="hangup-main-btn"`) that could be used as a second signal; not implemented.

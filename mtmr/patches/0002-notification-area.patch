@@ -61,7 +61,7 @@
          switch type {
 +        case .notification:
 +            let maxChars = try container.decodeIfPresent(Int.self, forKey: .maxChars) ?? 40
-+            let defaultSeconds = try container.decodeIfPresent(Double.self, forKey: .defaultSeconds) ?? 5
++            let defaultSeconds = try container.decodeIfPresent(Double.self, forKey: .defaultSeconds) ?? 8
 +            guard (1...1000).contains(maxChars) else {
 +                throw DecodingError.dataCorruptedError(forKey: .maxChars, in: container, debugDescription: "maxChars must be 1...1000")
 +            }

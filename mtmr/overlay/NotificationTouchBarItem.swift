@@ -14,7 +14,7 @@ final class NotificationStore {
     private var timer: Timer?
     private var startedAt: Double?
     private var paused = false
-    var defaultSeconds: Double = 5
+    var defaultSeconds: Double = 8
 
     var text: String {
         return entries.isEmpty ? "" : entries[selectedIndex].text
@@ -56,7 +56,8 @@ final class NotificationStore {
     func move(by offset: Int) {
         dispatchPrecondition(condition: .onQueue(.main))
         guard !entries.isEmpty else { return }
-        selectedIndex = min(max(0, selectedIndex + offset), entries.count - 1)
+        // Endless swipe: wraps around the queue in both directions.
+        selectedIndex = ((selectedIndex + offset) % entries.count + entries.count) % entries.count
         publish()
     }
 
@@ -97,11 +98,11 @@ final class NotificationTouchBarItem: NSCustomTouchBarItem {
     let layoutOptions: NotificationLayoutOptions
     private var observer: NSObjectProtocol?
 
-    init(identifier: NSTouchBarItem.Identifier, maxChars: Int, defaultSeconds: Double, layoutOptions: NotificationLayoutOptions = NotificationLayoutOptions()) {
-        self.layoutOptions = layoutOptions
+    init(identifier: NSTouchBarItem.Identifier, maxChars: Int, defaultSeconds: Double, layoutOptions: NotificationLayoutOptions? = nil) {
+        self.layoutOptions = layoutOptions ?? NotificationLayoutOptions(maxChars: maxChars)
         super.init(identifier: identifier)
         NotificationStore.shared.defaultSeconds = defaultSeconds
-        let notificationView = NotificationAreaView(maxChars: maxChars, fadeSeconds: layoutOptions.fadeSeconds)
+        let notificationView = NotificationAreaView(maxChars: maxChars, fadeSeconds: self.layoutOptions.fadeSeconds)
         view = notificationView
         notificationView.show(text: NotificationStore.shared.text)
         observer = NotificationCenter.default.addObserver(forName: NotificationStore.changed, object: nil, queue: .main) { [weak notificationView] _ in

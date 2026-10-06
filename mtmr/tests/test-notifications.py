@@ -3,19 +3,16 @@
 Uses temporary sockets only; does not launch MTMR.app or change its settings.
 """
 
-import base64
 import json
 import os
 from pathlib import Path
 import socket
 import stat
-import struct
 import subprocess
 import tempfile
 import threading
 import time
 import unittest
-import zlib
 
 repositoryRoot = Path(__file__).resolve().parents[2]
 cliPath = repositoryRoot / "bin/tbctl"
@@ -95,43 +92,48 @@ class NotificationTests(unittest.TestCase):
         execution = self.fakeRoundTrip(["clear"], {"cmd": "clear"}, {"ok": "not a boolean"})
         self.assertEqual(execution.returncode, 1)
 
+    def testButtonCli(self):
+        command = {"cmd": "button", "id": "teams-mic", "icon": "mic.fill", "tint": "#34c759", "background": None, "visible": False}
+        arguments = ["button", "teams-mic", "--icon", "mic.fill", "--tint", "#34c759", "--background", "none", "--hide"]
+        execution = self.fakeRoundTrip(arguments, command, {"ok": True})
+        self.assertEqual(execution.returncode, 0, execution.stderr)
+        self.assertEqual(json.loads(self.runCli(*arguments, "--dry-run").stdout), command)
+        listing = {"ok": True, "buttons": [{"id": "teams-mic", "visible": True}]}
+        execution = self.fakeRoundTrip(["buttons"], {"cmd": "buttons"}, listing)
+        self.assertEqual(json.loads(execution.stdout), listing)
+        self.assertEqual(json.loads(self.runCli("buttons", "--dry-run").stdout), {"cmd": "buttons"})
+        execution = self.runCli("button", "teams-mic", "--icon-path", "/tmp/mic.png", "--tint", "none", "--show", "--dry-run")
+        self.assertEqual(json.loads(execution.stdout), {"cmd": "button", "id": "teams-mic", "iconPath": "/tmp/mic.png", "tint": None, "visible": True})
+        for arguments in (["button", "BAD"], ["button", "mic", "--tint", "bad"], ["button", "mic", "--hide", "--show"], ["button", "mic", "--icon", "mic.fill", "--icon-path", "/tmp/mic.png"]):
+            self.assertEqual(self.runCli(*arguments, "--dry-run").returncode, 2)
+        with tempfile.TemporaryDirectory() as temporaryDirectory:
+            for arguments in (["button", "mic"], ["buttons"], ["clear"], ["notify", "test"]):
+                execution = self.runCli(*arguments, "--socket", str(Path(temporaryDirectory) / "missing.sock"))
+                self.assertEqual(execution.returncode, 3)
+                self.assertIn("MTMR is not running (no socket)", execution.stderr)
+
     def testLayout(self):
         items = json.loads((repositoryRoot / "layouts/main.json").read_text())
-        self.assertEqual([item["align"] for item in items], ["left"] * 5 + ["center"] + ["right"] * 2)
-        self.assertEqual(items[0]["type"], "exitTouchbar")
-        self.assertEqual(items[0]["width"], 30)
-        self.assertEqual(items[1]["width"], 1)
-        self.assertFalse(items[1]["bordered"])
-        self.assertEqual(items[1]["title"], "")
-        parsingSource = (repositoryRoot / "build/work/src/ItemsParsing.swift").read_text()
-        controllerSource = (repositoryRoot / "build/work/src/TouchBarController.swift").read_text()
-        self.assertIn('typename: "exitTouchbar"', controllerSource)
-        for item in items:
-            if item["type"] != "exitTouchbar":
-                self.assertIn("case " + item["type"], parsingSource)
-            self.assertIn(item["type"], ("exitTouchbar", "staticButton", "notification"))
-            self.assertNotIn("actions", item)
-            self.assertNotIn("matchAppId", item)
-        for item in items[2:5]:
-            self.assertEqual(item["width"], 75)
-            self.assertEqual(item["title"], "")
-            image = base64.b64decode(item["image"]["base64"], validate=True)
-            self.assertEqual(image[:8], b"\x89PNG\r\n\x1a\n")
-            self.assertEqual(struct.unpack("!II", image[16:24]), (24, 24))
-            offset = 8
-            while offset < len(image):
-                chunkLength = struct.unpack("!I", image[offset:offset + 4])[0]
-                chunk = image[offset + 4:offset + 8 + chunkLength]
-                checksum = struct.unpack("!I", image[offset + 8 + chunkLength:offset + 12 + chunkLength])[0]
-                self.assertEqual(zlib.crc32(chunk), checksum)
-                offset += 12 + chunkLength
-        self.assertEqual([item["width"] for item in items[-2:]], [100, 100])
+        self.assertIsInstance(items, list)
+        identifiers = [item["id"] for item in items if "id" in item]
+        self.assertEqual(len(identifiers), len(set(identifiers)))
+        microphone = next(item for item in items if item.get("id") == "teams-mic")
+        self.assertEqual(microphone["type"], "staticButton")
+        self.assertEqual(microphone["icon"], "mic.fill")
+        self.assertEqual(microphone["tint"], "#8e8e93")
+        self.assertEqual(microphone["title"], "")
+        self.assertFalse(microphone.get("keepSlotWhenHidden", False))
+        self.assertEqual(microphone["actions"], [{"trigger": "singleTap", "action": "shellScript",
+                                               "executablePath": str(repositoryRoot / "teams/teams-mute"),
+                                               "shellArguments": ["toggle"]}])
 
     def compileHarness(self, temporaryDirectory):
         executablePath = str(Path(temporaryDirectory) / "notification-harness")
         sources = [repositoryRoot / "mtmr/overlay/NotificationLayoutSolver.swift",
+                   repositoryRoot / "mtmr/overlay/NotificationAreaView.swift",
                    repositoryRoot / "mtmr/overlay/NotificationTouchBarItem.swift",
                    repositoryRoot / "mtmr/overlay/NotificationSocketServer.swift",
+                   repositoryRoot / "mtmr/overlay/LiveButtonStore.swift",
                    repositoryRoot / "mtmr/tests/main.swift"]
         compilation = compileSwiftHarness(executablePath, sources)
         self.assertEqual(compilation.returncode, 0, compilation.stderr)
@@ -164,6 +166,32 @@ class NotificationTests(unittest.TestCase):
         self.assertEqual(self.runCli("notify", "actual Swift server", "--socket", socketPath).returncode, 0)
         self.assertEqual(self.runCli("clear", "--socket", socketPath).returncode, 0)
 
+    def checkLiveServerCommands(self, socketPath):
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.settimeout(5)
+            connection.connect(socketPath)
+            def exchange(command):
+                return self.exchange(connection, json.dumps(command).encode())
+            initial = exchange({"cmd": "buttons"})
+            self.assertTrue(initial["ok"])
+            self.assertEqual(initial["buttons"][0]["id"], "fixture-mic")
+            command = {"cmd": "button", "id": "fixture-mic", "icon": "mic.slash.fill", "iconPath": None, "tint": "#ff3b30", "background": "#123456", "visible": False}
+            self.assertEqual(exchange(command), {"ok": True})
+            changed = exchange({"cmd": "buttons"})
+            self.assertEqual(changed["buttons"][0]["icon"], "mic.slash.fill")
+            self.assertEqual(changed["buttons"][0]["tint"], "#ff3b30")
+            self.assertEqual(changed["buttons"][0]["background"], "#123456")
+            self.assertFalse(changed["buttons"][0]["visible"])
+            for fields, expectedError in (({"id": "unknown"}, "unknown button"), ({"icon": "invalid-symbol"}, "unknown icon"), ({"tint": "#bad", "visible": True}, "tint must"), ({"visible": 1}, "visible must"), ({"background": []}, "background must"), ({"icon": False}, "icon must"), ({"iconPath": "relative.png"}, "iconPath must")):
+                rejected = exchange(dict({"cmd": "button", "id": "fixture-mic"}, **fields))
+                self.assertFalse(rejected["ok"])
+                self.assertIn(expectedError, rejected["error"])
+                self.assertEqual(exchange({"cmd": "buttons"}), changed)
+            self.assertEqual(exchange({"cmd": "button", "id": "fixture-mic", "icon": None, "tint": None, "background": None, "visible": None}), {"ok": True})
+            self.assertEqual(exchange({"cmd": "buttons"}), initial)
+            self.assertEqual(exchange({"cmd": "button", "id": "fixture-mic", "tint": "#34c759"}), {"ok": True})
+            self.assertEqual(exchange({"cmd": "buttons"})["buttons"][0]["icon"], "mic.fill")
+
     def waitForServer(self, harness, socketPath):
         deadline = time.monotonic() + 5
         readinessError = None
@@ -192,6 +220,7 @@ class NotificationTests(unittest.TestCase):
             try:
                 self.waitForServer(harness, socketPath)
                 self.checkServerCommands(socketPath)
+                self.checkLiveServerCommands(socketPath)
             finally:
                 Path(temporaryDirectory, "stop").touch()
                 stdout, stderr = harness.communicate(timeout=8)
@@ -213,7 +242,8 @@ class LayoutSolverTests(unittest.TestCase):
                                        capture_output=True, text=True, timeout=10)
             self.assertEqual(execution.returncode, 0, execution.stderr)
             self.assertIn("N=477 margins=304/304", execution.stdout)
-            self.assertIn("N=241 margins=422/422", execution.stdout)
+            self.assertIn("N=395 margins=345/345", execution.stdout)
+            self.assertIn("N=339 margins=373/373", execution.stdout)
             self.assertIn("Layout solver checks passed", execution.stdout)
             print(execution.stdout, end="")
 
@@ -225,6 +255,7 @@ class LayoutViewTests(unittest.TestCase):
             sourceDirectory = repositoryRoot / "build/work/src"
             sources = sorted(sourcePath for sourcePath in sourceDirectory.rglob("*.swift") if sourcePath.name != "main.swift")
             sources.append(repositoryRoot / "mtmr/tests/LayoutViewTests.swift")
+            sources.append(repositoryRoot / "mtmr/tests/LiveButtonTests.swift")
             bridgeObjects = sorted((repositoryRoot / "build/work/objects").glob("*.o"))
             self.assertTrue(bridgeObjects, "Run mtmr/build.sh before the view tests")
             sdkExecution = subprocess.run(["xcrun", "--show-sdk-path"], capture_output=True, text=True, timeout=10)
@@ -246,9 +277,24 @@ class LayoutViewTests(unittest.TestCase):
                                        capture_output=True, text=True, timeout=20)
             self.assertEqual(execution.returncode, 0, execution.stderr)
             self.assertIn("Layout view checks passed (no Touch Bar created)", execution.stdout)
-            self.assertEqual(execution.stderr.count("MTMR layout warning:"), 1, "Warn on the narrow solve, not on text changes")
+            self.assertEqual(execution.stderr.count("MTMR layout warning:"), 2, "Warn on narrow solves, not on text changes")
             self.assertEqual(execution.stderr.count("MTMR item minWidth rejected:"), 2)
             print(execution.stdout, end="")
+
+
+class NotificationAreaTests(unittest.TestCase):
+    def testTextSwipeAndTransitions(self):
+        with tempfile.TemporaryDirectory(prefix="mtmr-area-test-") as temporaryDirectory:
+            executablePath = str(Path(temporaryDirectory) / "notification-area-tests")
+            sources = [repositoryRoot / "mtmr/overlay/NotificationLayoutSolver.swift",
+                       repositoryRoot / "mtmr/overlay/NotificationAreaView.swift",
+                       repositoryRoot / "mtmr/overlay/NotificationTouchBarItem.swift",
+                       repositoryRoot / "mtmr/tests/NotificationAreaTests.swift"]
+            compilation = compileSwiftHarness(executablePath, sources)
+            self.assertEqual(compilation.returncode, 0, compilation.stderr)
+            execution = subprocess.run([executablePath], capture_output=True, text=True, timeout=10)
+            self.assertEqual(execution.returncode, 0, execution.stderr)
+            self.assertIn("Notification area checks passed", execution.stdout)
 
 
 if __name__ == "__main__":

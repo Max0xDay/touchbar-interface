@@ -6,10 +6,10 @@ struct NotificationLayoutOptions: Decodable, Equatable {
     let maxWidth: Double?
     let fadeSeconds: Double
 
-    init(padding: Double = 16, minWidth: Double = 240, maxWidth: Double? = nil, fadeSeconds: Double = 0.35) {
+    init(padding: Double = 16, minWidth: Double? = nil, maxWidth: Double? = nil, fadeSeconds: Double = 0.35, maxChars: Int = 40) {
         self.fadeSeconds = fadeSeconds
         self.padding = padding.rounded()
-        self.minWidth = minWidth.rounded(.up)
+        self.minWidth = (minWidth ?? NotificationTextMetrics.preferredWidth(maxChars: maxChars)).rounded(.up)
         self.maxWidth = maxWidth?.rounded(.down)
     }
 
@@ -18,12 +18,17 @@ struct NotificationLayoutOptions: Decodable, Equatable {
         case minWidth
         case maxWidth
         case fadeSeconds
+        case maxChars
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let padding = try container.decodeIfPresent(Double.self, forKey: .padding) ?? 16
-        let minWidth = try container.decodeIfPresent(Double.self, forKey: .minWidth) ?? 240
+        let maxChars = try container.decodeIfPresent(Int.self, forKey: .maxChars) ?? 40
+        guard (1...1000).contains(maxChars) else {
+            throw DecodingError.dataCorruptedError(forKey: .maxChars, in: container, debugDescription: "maxChars must be between 1 and 1000")
+        }
+        let minWidth = try container.decodeIfPresent(Double.self, forKey: .minWidth) ?? NotificationTextMetrics.preferredWidth(maxChars: maxChars)
         let maxWidth = try container.decodeIfPresent(Double.self, forKey: .maxWidth)
         guard padding.isFinite else {
             throw DecodingError.dataCorruptedError(forKey: .padding, in: container, debugDescription: "padding must be finite")
@@ -59,6 +64,16 @@ struct NotificationLayoutOptions: Decodable, Equatable {
 }
 
 enum NotificationTextMetrics {
+    static let fontSize: Double = 15
+    static let innerInset: Double = 12
+    // #COMPLETION_DRIVE: This is the measured advance of the 15 pt regular monospaced system font on macOS 14.7.6.
+    // #SUGGEST_VERIFY: The AppKit harness checks this against NSFont; remeasure if the system font changes.
+    static let glyphWidth: Double = 9.2724609375
+
+    static func preferredWidth(maxChars: Int) -> Double {
+        return max(120, ceil(Double(maxChars) * glyphWidth + 2 * innerInset))
+    }
+
     static func capacity(width: Double, inset: Double, glyphWidth: Double, maxChars: Int) -> Int {
         guard glyphWidth > 0 else { return 0 }
         let fittingCharacters = floor(max(0, width - 2 * inset) / glyphWidth)
@@ -68,6 +83,16 @@ enum NotificationTextMetrics {
     static func truncated(_ text: String, capacity: Int) -> String {
         guard capacity > 0 else { return "" }
         return text.count > capacity ? String(text.prefix(capacity - 1)) + "…" : text
+    }
+}
+
+enum NotificationSwipe {
+    static func offset(horizontal: Double, vertical: Double) -> Int {
+        // Verified on the real bar (MTMR-notif log, 2026-10-06): the Touch Bar reports no vertical movement, so swipes are horizontal.
+        // #COMPLETION_DRIVE: 20 pt of dominant horizontal movement counts as a swipe (real swipes logged 20-85 pt).
+        guard abs(horizontal) >= 20 else { return 0 }
+        guard abs(horizontal) > abs(vertical) else { return 0 }
+        return horizontal < 0 ? 1 : -1
     }
 }
 
@@ -103,30 +128,23 @@ enum NotificationLayoutSolver {
     static func solve(barWidth: Double, left: [NotificationLayoutButton], right: [NotificationLayoutButton], options: NotificationLayoutOptions = NotificationLayoutOptions()) -> NotificationLayoutSolution {
         let barWidth = max(0, barWidth)
         var leftWidths = left.map { $0.width }
-        var rightWidths = right.map { $0.width }
+        let rightWidths = right.map { $0.width }
         let groupLimit = ((barWidth - options.minWidth - 2 * options.padding) / 2).rounded(.down)
         if availableWidth(barWidth, leftWidths, rightWidths, options.padding) < options.minWidth {
-            // Left-first is literal: exhaust left if the unchanged right group prevents reaching the minimum.
-            let leftLimit = groupWidth(rightWidths) <= groupLimit ? groupLimit : groupWidth(left.map { $0.minWidth })
-            leftWidths = shrink(left, to: leftLimit)
-            if availableWidth(barWidth, leftWidths, rightWidths, options.padding) < options.minWidth {
-                let rightLimit = groupWidth(leftWidths) <= groupLimit ? groupLimit : groupWidth(right.map { $0.minWidth })
-                rightWidths = shrink(right, to: rightLimit)
-            }
+            leftWidths = shrink(left, to: max(groupLimit, groupWidth(rightWidths)))
         }
         let available = availableWidth(barWidth, leftWidths, rightWidths, options.padding)
         var notificationWidth = centredWidth(min(available, options.maxWidth ?? available), barWidth: barWidth)
         var visibleLeft = leftWidths.map { Optional($0) }
-        var visibleRight = rightWidths.map { Optional($0) }
+        let visibleRight = rightWidths.map { Optional($0) }
         if notificationWidth < floorWidth {
-            // #COMPLETION_DRIVE: Infeasible minima hide whole edge items; W < 120 reduces the floor to W, never overlaps or shrinks fixed items.
-            // #SUGGEST_VERIFY: Review this exceptional policy before using a bar too narrow to fit the configured minima and padding.
+            // #COMPLETION_DRIVE: At impossible widths preserve the right group and centred floor, hiding only overflowing left items; right may overlap or be clipped.
+            // #SUGGEST_VERIFY: Keep W >= 2*(Rw+padding)+120; right preservation, a centred floor and no overlap cannot all hold below that.
             notificationWidth = centredWidth(min(121, options.maxWidth ?? 121), barWidth: barWidth)
             let remainingMargin = max(0, (barWidth - notificationWidth) / 2)
             let edgePadding = min(options.padding, remainingMargin)
             let edgeLimit = (remainingMargin - edgePadding).rounded(.down)
-            visibleLeft = fittingWidths(leftWidths, limit: edgeLimit, leading: true)
-            visibleRight = fittingWidths(rightWidths, limit: edgeLimit, leading: false)
+            visibleLeft = fittingWidths(leftWidths, limit: edgeLimit)
         }
         return NotificationLayoutSolution(
             left: frames(visibleLeft, start: 0),
@@ -176,9 +194,9 @@ enum NotificationLayoutSolver {
         return alignedWidth >= floorWidth ? alignedWidth : width
     }
 
-    private static func fittingWidths(_ widths: [Double], limit: Double, leading: Bool) -> [Double?] {
+    private static func fittingWidths(_ widths: [Double], limit: Double) -> [Double?] {
         var visible = [Double?](repeating: nil, count: widths.count)
-        let indices = leading ? Array(widths.indices) : Array(widths.indices.reversed())
+        let indices = widths.indices
         var usedWidth: Double = 0
         var visibleCount = 0
         for index in indices {

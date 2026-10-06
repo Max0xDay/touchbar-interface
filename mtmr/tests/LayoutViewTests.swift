@@ -6,11 +6,22 @@ struct LayoutViewTests {
     static func main() {
         do {
             SupportedTypesHolder.sharedInstance.register(typename: "exitTouchbar", item: .staticButton(title: "exit"), actions: [], legacyAction: .none, legacyLongAction: .none)
-            let layoutBytes = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))
-            let definitions = try JSONDecoder().decode([BarItemDefinition].self, from: layoutBytes)
+            let actualLayout = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))
+            let actualDefinitions = try JSONDecoder().decode([BarItemDefinition].self, from: actualLayout)
+            try validateLiveButtonIds(actualDefinitions)
+            precondition(actualDefinitions.contains { $0.liveButton?.id == "teams-mic" })
+            let layoutBytes = Data(Self.fixture.utf8)
+            guard var layoutObjects = try JSONSerialization.jsonObject(with: layoutBytes) as? [[String: Any]] else {
+                preconditionFailure("Layout must be an array of objects")
+            }
+            for index in layoutObjects.indices where layoutObjects[index]["type"] as? String == "notification" {
+                layoutObjects[index]["fadeSeconds"] = 0
+            }
+            let definitions = try JSONDecoder().decode([BarItemDefinition].self, from: JSONSerialization.data(withJSONObject: layoutObjects))
             try checkNotificationLayout(definitions)
             try checkStackPath(definitions.filter { !$0.type.isNotification })
             try checkDecodedOptions()
+            try LiveButtonTests.run()
             print("Layout view checks passed (no Touch Bar created)")
         } catch {
             NSLog("Layout view tests failed: %@", String(describing: error))
@@ -18,7 +29,9 @@ struct LayoutViewTests {
         }
     }
 
-    private static func makeItems(_ definitions: [BarItemDefinition]) throws -> ([NSTouchBarItem], [NSTouchBarItem.Identifier: BarItemDefinition]) {
+    static let fixture = ##"[{"type":"exitTouchbar","title":"✕","align":"left","width":30},{"type":"staticButton","title":"","align":"left","width":1,"bordered":false},{"type":"staticButton","id":"fixture-mic","icon":"mic.fill","tint":"#8e8e93","title":"","align":"left","width":75},{"type":"staticButton","title":"","align":"left","width":75},{"type":"staticButton","title":"","align":"left","width":75},{"type":"notification","fadeSeconds":0},{"type":"staticButton","title":"right 1","align":"right","width":100},{"type":"staticButton","title":"right 2","align":"right","width":100}]"##
+
+    static func makeItems(_ definitions: [BarItemDefinition]) throws -> ([NSTouchBarItem], [NSTouchBarItem.Identifier: BarItemDefinition]) {
         var items: [NSTouchBarItem] = []
         var indexedDefinitions: [NSTouchBarItem.Identifier: BarItemDefinition] = [:]
         for definition in definitions {
@@ -37,6 +50,7 @@ struct LayoutViewTests {
                 throw NSError(domain: "LayoutViewTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unexpected item in test layout"])
             }
             if case let .width(value)? = definition.additionalParameters[.width] { item.setWidth(value: value) }
+            if let button = item as? CustomButtonTouchBarItem, let live = definition.liveButton { button.bindLiveState(live) }
             items.append(item)
             indexedDefinitions[identifier] = definition
         }
@@ -57,6 +71,7 @@ struct LayoutViewTests {
         precondition(items[1].view?.frame.width == 1)
         precondition(items[2].view?.frame.minX == 47)
         precondition(notificationView.frame == NSRect(x: 304, y: 0, width: 477, height: 30))
+        precondition(items[2...4].compactMap { $0.view?.frame.width } == [75, 75, 75])
         precondition(items.last?.view?.frame.maxX == 1085)
         let initialFrames = items.compactMap { $0.view?.frame }
         let longNotificationText = String(repeating: "wide notification ", count: 100)
@@ -67,20 +82,30 @@ struct LayoutViewTests {
             precondition(items.compactMap { $0.view?.frame } == initialFrames, "Text must not resize or move any zone")
             guard let label = notificationView.subviews.first as? NSTextField else { preconditionFailure("Missing text label") }
             precondition(label.alignment == .center)
+            precondition(label.frame.midX == notificationView.bounds.midX)
+            precondition(label.frame.midY == notificationView.bounds.midY)
+            precondition(label.frame.width == notificationView.bounds.width - 24)
+            precondition(label.font?.pointSize == 15)
             precondition(label.stringValue == expectedText)
         }
-        for barWidth: CGFloat in [900, 780, 300, 1085] {
+        for barWidth: CGFloat in [900, 780, 600, 1085] {
             host.setFrameSize(NSSize(width: barWidth, height: 30))
             host.layoutSubtreeIfNeeded()
             precondition(container.frame == host.bounds, "Width changes must update the edge pins")
             precondition(notificationView.frame.midX == barWidth / 2)
             precondition(items.last?.view?.frame.maxX == barWidth)
+            precondition(items.last?.view?.frame.width == 100)
+            guard let label = notificationView.subviews.first as? NSTextField else { preconditionFailure("Missing label") }
+            precondition(label.frame.midX == notificationView.bounds.midX)
+            precondition(label.frame.midY == notificationView.bounds.midY)
+            precondition(label.frame.width == notificationView.bounds.width - 24)
+            precondition(label.font?.pointSize == 15)
             let visibleViews = items.compactMap { $0.view }.filter { !$0.isHidden }.sorted { $0.frame.minX < $1.frame.minX }
             for (previous, following) in zip(visibleViews, visibleViews.dropFirst()) {
                 precondition(previous.frame.maxX <= following.frame.minX, "Container frames must not overlap")
             }
         }
-        precondition(notificationView.frame.width == 477, "Growing W must restore nominal widths")
+        precondition(notificationView.frame.width == 477, "Growing W must restore the explicit three-icon fixture")
     }
 
     private static func checkStackPath(_ definitions: [BarItemDefinition]) throws {

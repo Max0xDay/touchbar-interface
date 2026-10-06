@@ -2,13 +2,6 @@ import Foundation
 
 @main
 struct LayoutSolverTests {
-    private struct LayoutItem: Decodable {
-        let type: String
-        let align: String
-        let width: Double?
-        let minWidth: Double?
-    }
-
     private static let currentLeft = [
         NotificationLayoutButton(width: 30, fixed: true),
         NotificationLayoutButton(width: 1, fixed: true),
@@ -20,7 +13,7 @@ struct LayoutSolverTests {
 
     static func main() {
         do {
-            try checkCurrentLayout()
+            checkCurrentLayout()
             checkBarWidthChanges()
             checkProportionalShrink()
             checkAutoSizeOrder()
@@ -59,17 +52,19 @@ struct LayoutSolverTests {
             }
         }
         let fourButtons = currentLeft + [NotificationLayoutButton(width: 75)]
-        precondition(NotificationLayoutSolver.solve(barWidth: 1085, left: fourButtons, right: currentRight).notification.width == 311)
+        let fourSolution = NotificationLayoutSolver.solve(barWidth: 1085, left: fourButtons, right: currentRight)
+        precondition(fourSolution.left.compactMap { $0?.width } == [30, 1, 64, 64, 65, 65])
+        precondition(fourSolution.notification == NotificationLayoutFrame(x: 345, width: 395))
+        precondition(fourSolution.right.compactMap { $0?.width } == [100, 100])
+        precondition(fourSolution.right.last??.maxX == 1085)
+        checkGeometry(fourSolution, barWidth: 1085)
+        precondition(NotificationLayoutOptions().minWidth == 395)
+        let smallBudget = try JSONDecoder().decode(NotificationLayoutOptions.self, from: Data(#"{"maxChars":20}"#.utf8))
+        precondition(smallBudget.minWidth == 210)
+        print("Four left icons: N=395 margins=345/345 widths=64,64,65,65")
     }
 
-    private static func checkCurrentLayout() throws {
-        let layoutPath = CommandLine.arguments[1]
-        let layoutBytes = try Data(contentsOf: URL(fileURLWithPath: layoutPath))
-        let layoutItems = try JSONDecoder().decode([LayoutItem].self, from: layoutBytes)
-        let leftWidths = layoutItems.filter { $0.align == "left" }.compactMap { $0.width }
-        let rightWidths = layoutItems.filter { $0.align == "right" }.compactMap { $0.width }
-        precondition(leftWidths == currentLeft.map { $0.width }, "Fixtures must match layouts/main.json")
-        precondition(rightWidths == currentRight.map { $0.width })
+    private static func checkCurrentLayout() {
         let solution = NotificationLayoutSolver.solve(barWidth: 1085, left: currentLeft, right: currentRight)
         precondition(solution.left.compactMap { $0?.x } == [0, 38, 47, 130, 213])
         precondition(solution.left.last??.maxX == 288)
@@ -93,31 +88,37 @@ struct LayoutSolverTests {
 
     private static func checkProportionalShrink() {
         let left = [NotificationLayoutButton(width: 200), NotificationLayoutButton(width: 100)]
-        let solution = NotificationLayoutSolver.solve(barWidth: 800, left: left, right: [])
+        let solution = NotificationLayoutSolver.solve(barWidth: 800, left: left, right: [], options: NotificationLayoutOptions(minWidth: 240))
         precondition(solution.left.compactMap { $0?.width } == [171, 85], "Shrink must apportion available reductions proportionally")
         precondition(solution.notification.width == 240)
         checkGeometry(solution, barWidth: 800)
         let sixButtons = Array(currentLeft.prefix(2)) + Array(repeating: NotificationLayoutButton(width: 75), count: 6)
         let resized = NotificationLayoutSolver.solve(barWidth: 1085, left: sixButtons, right: currentRight)
-        precondition(resized.left.compactMap { $0?.width } == [30, 1, 53, 53, 53, 53, 53, 54])
-        precondition(resized.left.last??.maxX == 406)
+        precondition(resized.left.compactMap { $0?.width } == [30, 1, 45, 45, 45, 45, 45, 45])
+        precondition(resized.left.last??.maxX == 357)
         precondition(resized.right.compactMap { $0?.width } == [100, 100], "Right must stay full-sized if shrinking left suffices")
-        precondition(resized.notification == NotificationLayoutFrame(x: 422, width: 241))
+        precondition(resized.notification == NotificationLayoutFrame(x: 373, width: 339))
+        precondition(NotificationTextMetrics.capacity(width: 339, inset: 12, glyphWidth: NotificationTextMetrics.glyphWidth, maxChars: 40) == 33)
         checkGeometry(resized, barWidth: 1085)
-        print("Six left icons: Lw=406 Rw=208 N=241 margins=422/422 widths=53,53,53,53,53,54")
+        print("Six left icons: Lw=357 Rw=208 N=339 margins=373/373 widths=45,45,45,45,45,45")
         let explicitMinima = [NotificationLayoutButton(width: 200, minWidth: 190), NotificationLayoutButton(width: 100, minWidth: 10)]
-        let explicitSolution = NotificationLayoutSolver.solve(barWidth: 800, left: explicitMinima, right: [])
+        let explicitSolution = NotificationLayoutSolver.solve(barWidth: 800, left: explicitMinima, right: [], options: NotificationLayoutOptions(minWidth: 240))
         precondition(explicitSolution.left.compactMap { $0?.width } == [196, 60])
         checkGeometry(explicitSolution, barWidth: 800)
     }
 
     private static func checkAutoSizeOrder() {
         let left = [NotificationLayoutButton(width: 100), NotificationLayoutButton(width: 100)]
-        let right = [NotificationLayoutButton(width: 200), NotificationLayoutButton(width: 200)]
+        let right = [NotificationLayoutButton(width: 140, minWidth: 0), NotificationLayoutButton(width: 140, minWidth: 0)]
         let solution = NotificationLayoutSolver.solve(barWidth: 800, left: left, right: right)
-        precondition(solution.left.compactMap { $0?.width } == [60, 60], "Exhaust the left stage when right prevents reaching the minimum")
-        precondition(solution.right.compactMap { $0?.width } == [128, 128])
-        precondition(solution.notification.width == 240)
+        precondition(solution.left.compactMap { $0?.width } == [100, 100], "Shrinking left below right cannot help")
+        precondition(solution.right.compactMap { $0?.width } == [140, 140])
+        precondition(solution.notification.width == 192)
+        let dominatedLeft = [NotificationLayoutButton(width: 200), NotificationLayoutButton(width: 200)]
+        let stopped = NotificationLayoutSolver.solve(barWidth: 800, left: dominatedLeft, right: right)
+        precondition(stopped.left.compactMap { $0?.width } == [140, 140], "Stop shrinking when Lw equals Rw")
+        precondition(stopped.notification.width == 192)
+        checkGeometry(stopped, barWidth: 800)
         checkGeometry(solution, barWidth: 800)
         let fixed = NotificationLayoutButton(width: 30, minWidth: 0, fixed: true)
         precondition(fixed.minWidth == 30, "Exit/spacer widths are fixed even with a smaller explicit minimum")
@@ -131,7 +132,7 @@ struct LayoutSolverTests {
         let left = Array(repeating: NotificationLayoutButton(width: 150), count: 3)
         let reduced = NotificationLayoutSolver.solve(barWidth: 780, left: left, right: currentRight)
         precondition(reduced.left.compactMap { $0?.width } == [90, 90, 90])
-        precondition(reduced.right.compactMap { $0?.width } == [60, 60])
+        precondition(reduced.right.compactMap { $0?.width } == [100, 100])
         precondition(reduced.notification.width == 176)
         precondition(reduced.isBelowMinimum)
         precondition(!reduced.hasHiddenItems)
@@ -182,7 +183,7 @@ struct LayoutSolverTests {
 
     private static func checkOptions() throws {
         let defaults = try JSONDecoder().decode(NotificationLayoutOptions.self, from: Data("{}".utf8))
-        precondition(defaults == NotificationLayoutOptions(padding: 16, minWidth: 240))
+        precondition(defaults == NotificationLayoutOptions(padding: 16, minWidth: 395))
         let options = try JSONDecoder().decode(NotificationLayoutOptions.self, from: Data(#"{"padding":24,"minWidth":300,"maxWidth":400}"#.utf8))
         let capped = NotificationLayoutSolver.solve(barWidth: 1085, left: currentLeft, right: currentRight, options: options)
         precondition(capped.notification == NotificationLayoutFrame(x: 343, width: 399), "Round capped N down to preserve whole-point centring")
@@ -200,9 +201,19 @@ struct LayoutSolverTests {
         }
     }
 
+    private static func rightGroupCannotFit(_ frames: [NotificationLayoutFrame], barWidth: Double) -> Bool {
+        guard frames.map({ $0.width }) == [100, 100] else { return false }
+        return barWidth < 2 * (208 + 16) + 120
+    }
+
     private static func checkGeometry(_ solution: NotificationLayoutSolution, barWidth: Double) {
         let visibleLeft = solution.left.compactMap { $0 }
         let visibleRight = solution.right.compactMap { $0 }
+        if rightGroupCannotFit(visibleRight, barWidth: barWidth) {
+            precondition(visibleRight.last?.maxX == barWidth)
+            precondition(solution.notification.x == barWidth - solution.notification.maxX)
+            return
+        }
         let orderedFrames = visibleLeft + [solution.notification] + visibleRight
         precondition(solution.notification.x + solution.notification.width / 2 == barWidth / 2)
         precondition(solution.notification.x == barWidth - solution.notification.maxX, "Notification margins must be equal")

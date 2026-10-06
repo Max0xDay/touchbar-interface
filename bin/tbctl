@@ -16,6 +16,7 @@ import argparse
 import errno
 import json
 import math
+import re
 from pathlib import Path
 import socket
 import sys
@@ -31,6 +32,17 @@ def parseArguments():
     notificationParser.add_argument("text")
     notificationParser.add_argument("--seconds", type=float)
     commands.add_parser("clear", parents=[sharedOptions])
+    commands.add_parser("buttons", parents=[sharedOptions])
+    buttonParser = commands.add_parser("button", parents=[sharedOptions])
+    buttonParser.add_argument("id")
+    icons = buttonParser.add_mutually_exclusive_group()
+    icons.add_argument("--icon")
+    icons.add_argument("--icon-path")
+    buttonParser.add_argument("--tint")
+    buttonParser.add_argument("--background")
+    visibility = buttonParser.add_mutually_exclusive_group()
+    visibility.add_argument("--hide", action="store_true")
+    visibility.add_argument("--show", action="store_true")
     arguments = parser.parse_args()
     command = {"cmd": arguments.command}
     if arguments.command == "notify":
@@ -43,10 +55,35 @@ def parseArguments():
             if arguments.seconds > 86400:
                 parser.error("--seconds must not exceed 86400")
             command["seconds"] = arguments.seconds
+    if arguments.command == "button":
+        command.update(buttonFields(arguments, parser))
     commandJson = json.dumps(command, ensure_ascii=False, separators=(",", ":"))
     if len(commandJson.encode("utf-8")) > 4096:
         parser.error("command exceeds the 4096-byte protocol limit")
     return arguments, commandJson
+
+
+def buttonFields(arguments, parser):
+    if re.fullmatch(r"[a-z0-9-]{1,32}", arguments.id) is None:
+        parser.error("ID must match [a-z0-9-]{1,32}")
+    fields = {"id": arguments.id}
+    for option, name in (("icon", "icon"), ("icon_path", "iconPath"), ("tint", "tint"), ("background", "background")):
+        value = getattr(arguments, option)
+        if value is None:
+            continue
+        if name in ("tint", "background"):
+            if value == "none":
+                value = None
+            elif re.fullmatch(r"#[0-9a-fA-F]{6}", value) is None:
+                parser.error(f"--{option} requires #rrggbb or none")
+        if name == "iconPath" and not Path(value).is_absolute():
+            parser.error("--icon-path requires an absolute path")
+        fields[name] = value
+    if arguments.hide:
+        fields["visible"] = False
+    if arguments.show:
+        fields["visible"] = True
+    return fields
 
 
 def receiveReply(connection):
@@ -58,16 +95,16 @@ def receiveReply(connection):
         replyBytes.extend(received)
         newlineIndex = replyBytes.find(b"\n")
         if newlineIndex >= 0:
-            if newlineIndex > 4096:
-                raise ValueError("server reply exceeds 4096 bytes")
+            if newlineIndex > 1048576:
+                raise ValueError("server reply exceeds 1 MiB")
             reply = json.loads(replyBytes[:newlineIndex])
             if not isinstance(reply, dict):
                 raise ValueError("server reply must be a JSON object")
             if type(reply.get("ok")) is not bool:
                 raise ValueError("server reply requires a boolean ok field")
             return reply
-        if len(replyBytes) > 4096:
-            raise ValueError("server reply exceeds 4096 bytes")
+        if len(replyBytes) > 1048576:
+            raise ValueError("server reply exceeds 1 MiB")
 
 
 def main():
@@ -84,13 +121,16 @@ def main():
             connection.sendall(commandJson.encode("utf-8") + b"\n")
             reply = receiveReply(connection)
         if reply["ok"]:
+            if arguments.command == "buttons":
+                print(json.dumps(reply, ensure_ascii=False, separators=(",", ":")))
             return 0
         print(f"tbctl: {reply.get('error', 'server rejected command')}", file=sys.stderr)
         return 1
     except OSError as error:
-        print(f"tbctl: {error}", file=sys.stderr)
         if error.errno in (errno.ENOENT, errno.ECONNREFUSED):
+            print("tbctl: MTMR is not running (no socket)", file=sys.stderr)
             return 3
+        print(f"tbctl: {error}", file=sys.stderr)
         return 1
     except (ValueError, UnicodeError) as error:
         print(f"tbctl: invalid server reply: {error}", file=sys.stderr)

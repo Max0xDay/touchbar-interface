@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+"""Poll teams-mute status and update teams-mic through MTMR's local socket.
+
+No installation or Teams launch. --status-command PATH overrides teams-mute
+for isolated tests (the executable receives one argument: status).
+--dry-run still reads status; use a fake status command to avoid the real port.
+"""
+
+import argparse
+import errno
+import json
+import math
+from pathlib import Path
+import signal
+import socket
+import subprocess
+import sys
+import threading
+
+
+def parseArguments():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--once", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--interval", type=float, default=1)
+    parser.add_argument("--status-command", default=str(Path(__file__).resolve().with_name("teams-mute")))
+    parser.add_argument("--socket", default=str(Path.home() / "Library/Application Support/MTMR/mtmr.sock"))
+    arguments = parser.parse_args()
+    if not math.isfinite(arguments.interval):
+        parser.error("--interval must be finite")
+    if arguments.interval <= 0:
+        parser.error("--interval must be positive")
+    return arguments
+
+
+def mappedState(exitCode, status):
+    command = {"cmd": "button", "id": "teams-mic", "icon": "mic.fill", "tint": "#ffcc00", "background": None, "visible": True}
+    if exitCode == 4:
+        command["visible"] = False
+    elif exitCode == 0:
+        if status == "unmuted":
+            command["tint"] = "#34c759"
+        elif status == "muted":
+            command.update(icon="mic.slash.fill", tint="#ff3b30")
+    return command
+
+
+def readState(statusCommand):
+    try:
+        execution = subprocess.run([statusCommand, "status"], capture_output=True, text=True, timeout=5)
+        if execution.returncode not in (0, 3, 4):
+            print(f"teams-watch: status failed (exit {execution.returncode}): {execution.stderr.strip()[:200]}", file=sys.stderr)
+        if execution.returncode == 0:
+            if execution.stdout.strip() not in ("muted", "unmuted"):
+                print("teams-watch: unreadable mic status", file=sys.stderr)
+        return mappedState(execution.returncode, execution.stdout.strip())
+    except (OSError, subprocess.TimeoutExpired, UnicodeError) as error:
+        print(f"teams-watch: status failed: {error}", file=sys.stderr)
+        return mappedState(1, "")
+
+
+def socketIdentity(socketPath):
+    try:
+        status = Path(socketPath).stat()
+        return (status.st_dev, status.st_ino, status.st_ctime_ns)
+    except OSError as error:
+        if error.errno != errno.ENOENT:
+            print(f"teams-watch: socket stat failed: {error}", file=sys.stderr)
+        return None
+
+
+def applyState(socketPath, command):
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.settimeout(2)
+            connection.connect(socketPath)
+            connection.sendall(json.dumps(command, separators=(",", ":")).encode() + b"\n")
+            replyBytes = bytearray()
+            while b"\n" not in replyBytes:
+                received = connection.recv(1024)
+                if not received:
+                    raise ValueError("socket closed without reply")
+                replyBytes.extend(received)
+                if len(replyBytes) > 4096:
+                    raise ValueError("reply exceeds 4096 bytes")
+            reply = json.loads(replyBytes.split(b"\n", 1)[0])
+            if not isinstance(reply, dict):
+                raise ValueError("reply must be an object")
+            if reply.get("ok") is not True:
+                raise ValueError(str(reply.get("error", "command rejected")))
+        return True
+    except OSError as error:
+        if error.errno not in (errno.ENOENT, errno.ECONNREFUSED):
+            print(f"teams-watch: socket failed: {error}", file=sys.stderr)
+        return False
+    except (ValueError, UnicodeError) as error:
+        print(f"teams-watch: invalid socket reply: {error}", file=sys.stderr)
+        return False
+
+
+def main():
+    arguments = parseArguments()
+    stopped = threading.Event()
+    signal.signal(signal.SIGINT, lambda *_: stopped.set())
+    signal.signal(signal.SIGTERM, lambda *_: stopped.set())
+    appliedState = None
+    appliedIdentity = None
+    while not stopped.is_set():
+        command = readState(arguments.status_command)
+        identity = socketIdentity(arguments.socket) if not arguments.dry_run else None
+        changed = command != appliedState
+        restarted = identity != appliedIdentity
+        if changed or restarted:
+            if arguments.dry_run or arguments.once:
+                print(json.dumps(command, separators=(",", ":")), flush=True)
+            if arguments.dry_run:
+                appliedState = command
+            elif identity is not None:
+                if applyState(arguments.socket, command):
+                    appliedState = command
+                    appliedIdentity = identity
+                else:
+                    appliedState = None
+                    appliedIdentity = None
+        if identity is None:
+            if not arguments.dry_run:
+                appliedState = None
+                appliedIdentity = None
+        if arguments.once:
+            if arguments.dry_run:
+                return 0
+            return 0 if appliedState is not None else 3
+        stopped.wait(arguments.interval)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
