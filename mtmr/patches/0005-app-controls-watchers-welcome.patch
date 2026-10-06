@@ -1,0 +1,96 @@
+--- a/AppDelegate.swift
++++ b/AppDelegate.swift
+@@ -34,6 +34,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
+ 
+     func applicationWillTerminate(_: Notification) {
+         NotificationSocketServer.shared.stop()
++        WatcherSupervisor.shared.stopAll()
+     }
+ 
+     @objc func updateIsBlockedApp() {
+--- a/ItemsParsing.swift
++++ b/ItemsParsing.swift
+@@ -284,6 +284,7 @@ class SupportedTypesHolder {
+ 
+ enum ItemType: Decodable {
+     case notification(maxChars: Int, defaultSeconds: Double, layoutOptions: NotificationLayoutOptions)
++    case appControls(options: AppControlsOptions)
+     case staticButton(title: String)
+     case appleScriptTitledButton(source: SourceProtocol, refreshInterval: Double, alternativeImages: [String: SourceProtocol])
+     case shellScriptTitledButton(source: SourceProtocol, refreshInterval: Double)
+@@ -344,6 +345,7 @@ enum ItemType: Decodable {
+ 
+     enum ItemTypeRaw: String, Decodable {
+         case notification
++        case appControls
+         case staticButton
+         case appleScriptTitledButton
+         case shellScriptTitledButton
+@@ -404,6 +406,9 @@ enum ItemType: Decodable {
+             let interval = try container.decodeIfPresent(Double.self, forKey: .refreshInterval) ?? 1800.0
+             self = .shellScriptTitledButton(source: source, refreshInterval: interval)
+ 
++        case .appControls:
++            self = .appControls(options: try AppControlsOptions(from: decoder))
++
+         case .staticButton:
+             let title = try container.decode(String.self, forKey: .title)
+             self = .staticButton(title: title)
+--- a/TouchBarController.swift
++++ b/TouchBarController.swift
+@@ -26,6 +26,8 @@ extension ItemType {
+         switch self {
+         case .notification:
+             return "com.maxday.mtmr.notification."
++        case .appControls:
++            return "com.maxday.mtmr.appControls."
+         case .staticButton(title: _):
+             return "com.toxblh.mtmr.staticButton."
+         case .appleScriptTitledButton(source: _):
+@@ -144,6 +146,8 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
+         if let oldBar = self.touchBar {
+             minimizeSystemModal(oldBar)
+         }
++        barHidden = true
++        WatcherSupervisor.shared.sync(newJsonItems.compactMap { $0.liveButton?.watcher })
+         touchBar = NSTouchBar()
+         jsonItems = newJsonItems
+         itemDefinitions = [:]
+@@ -220,6 +224,9 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
+         updateActiveApp()
+     }
+ 
++    /// True while our bar is not on screen; the next presentation posts the layout's welcome notification.
++    private var barHidden = true
++
+     private var hasNotificationArea: Bool {
+         return jsonItems.contains { $0.type.isNotification }
+     }
+@@ -349,6 +356,10 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
+         } else {
+             presentSystemModal(touchBar, placement: 1, systemTrayItemIdentifier: .controlStripItem)
+         }
++        if barHidden {
++            barHidden = false
++            NotificationStore.shared.postWelcome()
++        }
+         updateControlStripPresence()
+     }
+ 
+@@ -356,6 +367,7 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
+         if touchBarContainsAnyItems() {
+             minimizeSystemModal(touchBar)
+         }
++        barHidden = true
+         updateControlStripPresence()
+     }
+ 
+@@ -377,6 +389,8 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
+         switch item.type {
+         case let .notification(maxChars: maxChars, defaultSeconds: defaultSeconds, layoutOptions: layoutOptions):
+             barItem = NotificationTouchBarItem(identifier: identifier, maxChars: maxChars, defaultSeconds: defaultSeconds, layoutOptions: layoutOptions)
++        case let .appControls(options: options):
++            barItem = AppControlsTouchBarItem(identifier: identifier, options: options)
+         case let .staticButton(title: title):
+             barItem = CustomButtonTouchBarItem(identifier: identifier, title: title)
+         case let .appleScriptTitledButton(source: source, refreshInterval: interval, alternativeImages: alternativeImages):

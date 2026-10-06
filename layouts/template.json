@@ -17,17 +17,9 @@
     "title": "",
     "align": "left",
     "width": 75,
-    "id": "teams-mic",
-    "icon": "mic.fill",
-    "tint": "#8e8e93",
-    "actions": [
-      {
-        "trigger": "singleTap",
-        "action": "shellScript",
-        "executablePath": "/Users/maxday/Workspace/projects/maxlaptopmtmr/touchbar-interface/teams/teams-mute",
-        "shellArguments": ["toggle"]
-      }
-    ]
+    "image": {
+      "base64": "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAAXklEQVR4nNXUyw4AEAxE0f7/T9fKRtBOtYObWHISL1FVqRyliz8J9EqAsVRgVQpgdQR4CwFoEBDNBZy2BbK6B5RvEeWQKdeU8tAoX4WFmHO9wAxxzUMAQRePAPD4H2jf4Wz2PXsZMwAAAABJRU5ErkJggg=="
+    }
   },
   {
     "type": "staticButton",
@@ -51,7 +43,7 @@
     "type": "notification",
     "align": "center",
     "maxChars": 40,
-    "defaultSeconds": 8
+    "defaultSeconds": 5
   },
   {
     "type": "staticButton",

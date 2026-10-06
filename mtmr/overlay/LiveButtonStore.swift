@@ -6,8 +6,11 @@ struct LiveButtonDefinition: Decodable {
     let iconPath: String?
     let tint: String?
     let keepSlotWhenHidden: Bool
+    let startHidden: Bool
+    /// argv of a process MTMR keeps running while this layout is loaded (see WatcherSupervisor).
+    let watcher: [String]?
 
-    private enum CodingKeys: String, CodingKey { case id, icon, iconPath, tint, keepSlotWhenHidden }
+    private enum CodingKeys: String, CodingKey { case id, icon, iconPath, tint, keepSlotWhenHidden, startHidden, watcher }
 
     init(from decoder: Decoder) throws {
         let fields = try decoder.container(keyedBy: CodingKeys.self)
@@ -16,6 +19,16 @@ struct LiveButtonDefinition: Decodable {
         iconPath = try fields.decodeIfPresent(String.self, forKey: .iconPath)
         tint = try fields.decodeIfPresent(String.self, forKey: .tint)
         keepSlotWhenHidden = try fields.decodeIfPresent(Bool.self, forKey: .keepSlotWhenHidden) ?? false
+        startHidden = try fields.decodeIfPresent(Bool.self, forKey: .startHidden) ?? false
+        watcher = try fields.decodeIfPresent([String].self, forKey: .watcher)
+        if let watcher = watcher {
+            guard let executable = watcher.first, executable.hasPrefix("/") else {
+                throw LiveButtonError(message: "watcher must start with an absolute executable path")
+            }
+            guard FileManager.default.isExecutableFile(atPath: executable) else {
+                throw LiveButtonError(message: "watcher is not executable: \(executable)")
+            }
+        }
         if let id = id { try LiveButtonStore.validateId(id) }
         var values: [String: Any] = [:]
         if let icon = icon { values["icon"] = icon }
@@ -108,13 +121,8 @@ final class LiveButtonStore {
         return NSColor(srgbRed: CGFloat((value >> 16) & 255) / 255, green: CGFloat((value >> 8) & 255) / 255, blue: CGFloat(value & 255) / 255, alpha: 1)
     }
 
-    static func symbol(_ name: String) -> NSImage? {
-        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil) else { return nil }
-        // #COMPLETION_DRIVE: A 17 pt SF Symbol fits Apple's native 30 pt button height visually.
-        // #SUGGEST_VERIFY: Compare mic sizing and template tint on the physical Touch Bar.
-        let configured = image.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 17, weight: .regular)) ?? image
-        configured.isTemplate = true
-        return configured
+    static func symbol(_ name: String, tint: NSColor? = nil) -> NSImage? {
+        return TouchBarIcon.symbol(name, tint: tint)
     }
 
     func beginRebuild() {
@@ -124,7 +132,7 @@ final class LiveButtonStore {
 
     func bind(definition: LiveButtonDefinition, view: NSView, image: NSImage?, background: NSColor?, apply: @escaping (NSImage?, NSColor?, NSColor?, Bool) -> Void) {
         dispatchPrecondition(condition: .onQueue(.main))
-        var defaults: [String: Any] = ["visible": true, "icon": NSNull(), "iconPath": NSNull(), "tint": NSNull(), "background": NSNull()]
+        var defaults: [String: Any] = ["visible": !definition.startHidden, "icon": NSNull(), "iconPath": NSNull(), "tint": NSNull(), "background": NSNull()]
         defaults["icon"] = definition.icon ?? defaults["icon"]
         defaults["iconPath"] = definition.iconPath ?? defaults["iconPath"]
         defaults["tint"] = definition.tint ?? defaults["tint"]
@@ -200,14 +208,13 @@ final class LiveButtonStore {
     }
 
     private func render(_ binding: Binding, values: [String: Any]) {
-        var image = binding.defaultImage
-        if let name = values["icon"] as? String { image = Self.symbol(name) }
-        if let path = values["iconPath"] as? String {
-            image = NSImage(contentsOfFile: path)
-            image?.size = NSSize(width: 17, height: 17)
-            image?.isTemplate = true
-        }
         let tint = (values["tint"] as? String).flatMap(Self.color)
+        // Verified 2026-10-06: the Touch Bar ignored contentTintColor (muted mic stayed white), so the tint is baked in.
+        var image = binding.defaultImage
+        if let name = values["icon"] as? String { image = Self.symbol(name, tint: tint) }
+        if let path = values["iconPath"] as? String, let file = NSImage(contentsOfFile: path) {
+            image = TouchBarIcon.fitted(file, box: TouchBarIcon.symbolBox, tint: tint, template: true)
+        }
         let background = (values["background"] as? String).flatMap(Self.color) ?? binding.defaultBackground
         binding.apply(image, tint, background, values["visible"] as? Bool ?? true)
     }

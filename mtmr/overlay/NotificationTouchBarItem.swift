@@ -15,6 +15,7 @@ final class NotificationStore {
     private var startedAt: Double?
     private var paused = false
     var defaultSeconds: Double = 8
+    var welcome: String?
 
     var text: String {
         return entries.isEmpty ? "" : entries[selectedIndex].text
@@ -30,6 +31,14 @@ final class NotificationStore {
             publish()
         }
         return true
+    }
+
+    /// Posts the layout's welcome text unless it is already queued.
+    func postWelcome() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard let welcome = welcome, !welcome.isEmpty else { return }
+        guard !entries.contains(where: { $0.text == welcome }) else { return }
+        _ = notify(text: welcome, seconds: nil)
     }
 
     func clear() {
@@ -102,6 +111,7 @@ final class NotificationTouchBarItem: NSCustomTouchBarItem {
         self.layoutOptions = layoutOptions ?? NotificationLayoutOptions(maxChars: maxChars)
         super.init(identifier: identifier)
         NotificationStore.shared.defaultSeconds = defaultSeconds
+        NotificationStore.shared.welcome = self.layoutOptions.welcome
         let notificationView = NotificationAreaView(maxChars: maxChars, fadeSeconds: self.layoutOptions.fadeSeconds)
         view = notificationView
         notificationView.show(text: NotificationStore.shared.text)

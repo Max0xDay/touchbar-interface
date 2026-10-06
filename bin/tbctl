@@ -3,16 +3,20 @@
 
 Protocol: AF_UNIX/SOCK_STREAM, one UTF-8 JSON object per newline, at most
 4096 bytes excluding newline. Commands: {"cmd":"notify","text":"...",
-"seconds":5} (seconds optional, positive, <=86400), {"cmd":"clear"}.
+"seconds":5} (seconds optional, positive, <=86400), {"cmd":"clear"},
+{"cmd":"button",...}, {"cmd":"buttons"}, {"cmd":"app","id":"stats"}, {"cmd":"apps"}.
 Each command gets {"ok":true} or {"ok":false,"error":"..."} plus newline.
 Unknown fields are reserved for extensions; unknown commands are rejected.
 Default socket: ~/Library/Application Support/MTMR/mtmr.sock (mode 0600).
+`tbctl layout [NAME]` is local, not a socket command: it copies layouts/NAME.json
+(${REPO} -> this repository) over the live items.json, backing up the old one first.
 --socket PATH overrides it for testing. --dry-run never connects.
 Exit: 0 success, 3 missing/refused socket, 2 usage, 1 server/transport error.
 Five-second timeout; no automatic retry, to avoid duplicate notifications.
 """
 
 import argparse
+from datetime import datetime
 import errno
 import json
 import math
@@ -33,6 +37,10 @@ def parseArguments():
     notificationParser.add_argument("--seconds", type=float)
     commands.add_parser("clear", parents=[sharedOptions])
     commands.add_parser("buttons", parents=[sharedOptions])
+    appParser = commands.add_parser("app", parents=[sharedOptions], help="select an App Controls panel (no ID: list them)")
+    appParser.add_argument("id", nargs="?")
+    layoutParser = commands.add_parser("layout", parents=[sharedOptions], help="switch the live layout (no NAME: show the active one)")
+    layoutParser.add_argument("name", nargs="?")
     buttonParser = commands.add_parser("button", parents=[sharedOptions])
     buttonParser.add_argument("id")
     icons = buttonParser.add_mutually_exclusive_group()
@@ -45,6 +53,8 @@ def parseArguments():
     visibility.add_argument("--show", action="store_true")
     arguments = parser.parse_args()
     command = {"cmd": arguments.command}
+    if arguments.command == "app":
+        command = {"cmd": "app", "id": arguments.id} if arguments.id else {"cmd": "apps"}
     if arguments.command == "notify":
         command["text"] = arguments.text
         if arguments.seconds is not None:
@@ -86,6 +96,65 @@ def buttonFields(arguments, parser):
     return fields
 
 
+REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
+LAYOUT_DIRECTORY = REPOSITORY_ROOT / "layouts"
+LIVE_LAYOUT_PATH = Path.home() / "Library/Application Support/MTMR/items.json"
+LAYOUT_BACKUP_DIRECTORY = LIVE_LAYOUT_PATH.parent / "layout-backups"
+KEPT_LAYOUT_BACKUPS = 20
+
+
+def renderedLayout(name):
+    text = (LAYOUT_DIRECTORY / f"{name}.json").read_text(encoding="utf-8")
+    return text.replace("${REPO}", str(REPOSITORY_ROOT))
+
+
+def layoutNames():
+    return sorted(path.stem for path in LAYOUT_DIRECTORY.glob("*.json"))
+
+
+def activeLayout():
+    try:
+        live = LIVE_LAYOUT_PATH.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    return next((name for name in layoutNames() if renderedLayout(name) == live), "custom")
+
+
+def backUpLiveLayout():
+    if not LIVE_LAYOUT_PATH.exists():
+        return None
+    LAYOUT_BACKUP_DIRECTORY.mkdir(mode=0o700, exist_ok=True)
+    backupPath = LAYOUT_BACKUP_DIRECTORY / f"items-{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}.json"
+    backupPath.write_bytes(LIVE_LAYOUT_PATH.read_bytes())
+    for oldBackup in sorted(LAYOUT_BACKUP_DIRECTORY.glob("items-*.json"))[:-KEPT_LAYOUT_BACKUPS]:
+        oldBackup.unlink()
+    return backupPath
+
+
+def switchLayout(arguments):
+    if arguments.name is None:
+        print(f"active: {activeLayout() or 'none'} (available: {', '.join(layoutNames())})")
+        return 0
+    if arguments.name not in layoutNames():
+        print(f"tbctl: unknown layout {arguments.name!r} (available: {', '.join(layoutNames())})", file=sys.stderr)
+        return 2
+    rendered = renderedLayout(arguments.name)
+    try:
+        json.loads(rendered)
+    except ValueError as error:
+        print(f"tbctl: layouts/{arguments.name}.json is not valid JSON: {error}", file=sys.stderr)
+        return 1
+    if getattr(arguments, "dry_run", False):
+        print(rendered, end="")
+        return 0
+    backupPath = backUpLiveLayout()
+    # Written in place: MTMR watches the file descriptor of items.json, so a rename would stop hot reload.
+    with open(LIVE_LAYOUT_PATH, "w", encoding="utf-8") as liveLayout:
+        liveLayout.write(rendered)
+    print(f"layout: {arguments.name}" + (f" (previous saved to {backupPath})" if backupPath else ""))
+    return 0
+
+
 def receiveReply(connection):
     replyBytes = bytearray()
     while True:
@@ -109,6 +178,8 @@ def receiveReply(connection):
 
 def main():
     arguments, commandJson = parseArguments()
+    if arguments.command == "layout":
+        return switchLayout(arguments)
     if getattr(arguments, "dry_run", False):
         print(commandJson)
         return 0
@@ -121,7 +192,7 @@ def main():
             connection.sendall(commandJson.encode("utf-8") + b"\n")
             reply = receiveReply(connection)
         if reply["ok"]:
-            if arguments.command == "buttons":
+            if arguments.command in ("buttons", "app") and "id" not in json.loads(commandJson):
                 print(json.dumps(reply, ensure_ascii=False, separators=(",", ":")))
             return 0
         print(f"tbctl: {reply.get('error', 'server rejected command')}", file=sys.stderr)

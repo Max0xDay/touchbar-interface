@@ -18,6 +18,15 @@ repositoryRoot = Path(__file__).resolve().parents[2]
 cliPath = repositoryRoot / "bin/tbctl"
 
 
+def renderedActualLayout(directory):
+    """layouts/actual.json with ${REPO} substituted, exactly as `tbctl layout actual` would install it."""
+    rendered = subprocess.run([str(repositoryRoot / "bin/tbctl"), "layout", "actual", "--dry-run"],
+                              capture_output=True, text=True, check=True, timeout=10).stdout
+    layoutPath = Path(directory) / "actual.json"
+    layoutPath.write_text(rendered)
+    return layoutPath
+
+
 def compileSwiftHarness(executablePath, sources, compilationArguments=()):
     return subprocess.run(["swiftc", "-target", "arm64-apple-macosx11.0", "-swift-version", "5",
                            *map(str, sources), *compilationArguments, "-o", executablePath],
@@ -113,7 +122,8 @@ class NotificationTests(unittest.TestCase):
                 self.assertIn("MTMR is not running (no socket)", execution.stderr)
 
     def testLayout(self):
-        items = json.loads((repositoryRoot / "layouts/main.json").read_text())
+        with tempfile.TemporaryDirectory() as temporaryDirectory:
+            items = json.loads(renderedActualLayout(temporaryDirectory).read_text())
         self.assertIsInstance(items, list)
         identifiers = [item["id"] for item in items if "id" in item]
         self.assertEqual(len(identifiers), len(set(identifiers)))
@@ -123,9 +133,14 @@ class NotificationTests(unittest.TestCase):
         self.assertEqual(microphone["tint"], "#8e8e93")
         self.assertEqual(microphone["title"], "")
         self.assertFalse(microphone.get("keepSlotWhenHidden", False))
+        self.assertTrue(microphone["startHidden"])
+        self.assertEqual(microphone["watcher"], [str(repositoryRoot / "teams/teams-watch")])
         self.assertEqual(microphone["actions"], [{"trigger": "singleTap", "action": "shellScript",
-                                               "executablePath": str(repositoryRoot / "teams/teams-mute"),
-                                               "shellArguments": ["toggle"]}])
+                                               "executablePath": str(repositoryRoot / "teams/teams-mic-tap"),
+                                               "shellArguments": []}])
+        appControls = [item for item in items if item["type"] == "appControls"]
+        self.assertEqual(len(appControls), 1)
+        self.assertEqual(appControls[0]["align"], "right")
 
     def compileHarness(self, temporaryDirectory):
         executablePath = str(Path(temporaryDirectory) / "notification-harness")
@@ -134,6 +149,7 @@ class NotificationTests(unittest.TestCase):
                    repositoryRoot / "mtmr/overlay/NotificationTouchBarItem.swift",
                    repositoryRoot / "mtmr/overlay/NotificationSocketServer.swift",
                    repositoryRoot / "mtmr/overlay/LiveButtonStore.swift",
+                   repositoryRoot / "mtmr/overlay/TouchBarIcon.swift",
                    repositoryRoot / "mtmr/tests/main.swift"]
         compilation = compileSwiftHarness(executablePath, sources)
         self.assertEqual(compilation.returncode, 0, compilation.stderr)
@@ -238,7 +254,7 @@ class LayoutSolverTests(unittest.TestCase):
                        repositoryRoot / "mtmr/tests/LayoutSolverTests.swift"]
             compilation = compileSwiftHarness(executablePath, sources)
             self.assertEqual(compilation.returncode, 0, compilation.stderr)
-            execution = subprocess.run([executablePath, str(repositoryRoot / "layouts/main.json")],
+            execution = subprocess.run([executablePath, str(repositoryRoot / "layouts/template.json")],
                                        capture_output=True, text=True, timeout=10)
             self.assertEqual(execution.returncode, 0, execution.stderr)
             self.assertIn("N=477 margins=304/304", execution.stdout)
@@ -273,7 +289,7 @@ class LayoutViewTests(unittest.TestCase):
                 compilationArguments.extend(["-framework", framework])
             compilation = compileSwiftHarness(executablePath, sources, compilationArguments)
             self.assertEqual(compilation.returncode, 0, compilation.stderr)
-            execution = subprocess.run([executablePath, str(repositoryRoot / "layouts/main.json")],
+            execution = subprocess.run([executablePath, str(renderedActualLayout(temporaryDirectory))],
                                        capture_output=True, text=True, timeout=20)
             self.assertEqual(execution.returncode, 0, execution.stderr)
             self.assertIn("Layout view checks passed (no Touch Bar created)", execution.stdout)

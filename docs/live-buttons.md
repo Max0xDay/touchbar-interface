@@ -81,9 +81,9 @@ Taps use existing MTMR `actions`; there is no new tap transport. The Teams item 
 
 `executablePath` is the absolute executable itself; MTMR passes `shellArguments`
 to `Process`, not to an interpolating shell. `$HOME`, `~` and relative repo paths
-are not substituted. Update this path if the checkout moves. `layouts/main.json`
-keeps the exit, spacer, other two placeholders and right buttons unchanged.
-The mic starts neutral grey until the watcher supplies state.
+are not substituted by MTMR. `layouts/actual.json` uses `${REPO}`; `tbctl layout actual`
+replaces `${REPO}` with the repository path. The mic starts hidden (`startHidden`) until
+the watcher supplies a state.
 
 ### Add another live button in three steps
 
@@ -185,3 +185,15 @@ Bar or access the controller singleton. The current full-width three-icon fixtur
 still yields **N=477 at W=1085**. Physical icon sizing/tint, group representation,
 Reduce Motion and coordinated animation appearance remain unverified; visible tags
 mark those assumptions. Nothing was installed or tried on the real bar/Teams port.
+
+## Watchers and start state
+
+A live button in the layout accepts two more fields:
+
+- `"startHidden": true`: the button starts hidden and collapsed. The watcher shows the button when the watcher has a state. The Teams mic uses this field, so no grey mic shows outside a call.
+- `"watcher": ["/absolute/path", "arg", ...]`: MTMR starts this process when the layout loads. MTMR stops the process when a new layout no longer lists it, and when MTMR quits.
+  - If the process exits, MTMR starts it again after 1 s. The delay doubles up to 60 s. After 30 s of normal run, the delay goes back to 1 s.
+  - The first item must be an absolute path to an executable file. Otherwise MTMR rejects the layout.
+  - Output goes to `~/Library/Logs/touchbar-interface/watchers.log`. MTMR starts a new log file when the old file is larger than 1 MB.
+
+The Teams mic uses `teams/teams-watch` as its watcher, so no LaunchAgent is necessary for the mic. A tap runs `teams/teams-mic-tap`. That script toggles the mic and sets the new icon at once.

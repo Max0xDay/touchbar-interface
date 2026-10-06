@@ -21,7 +21,9 @@ enum LiveButtonTests {
         try store.update(["id": "fixture-mic", "icon": "mic.slash.fill", "tint": "#ff3b30", "background": "#112233"])
         precondition(button.view === originalView, "Live state must never replace the button view")
         precondition(button.title.isEmpty)
-        precondition(button.image?.isTemplate == true)
+        // A tinted icon is baked in colour (the Touch Bar ignores contentTintColor): not a template, fixed 18 pt box.
+        precondition(button.image?.isTemplate == false)
+        precondition(button.image?.size.height == TouchBarIcon.symbolBox)
         precondition((button.view as? NSButton)?.contentTintColor == LiveButtonStore.color("#ff3b30"))
         precondition(button.backgroundColor == LiveButtonStore.color("#112233"))
         let state = try JSONSerialization.data(withJSONObject: store.buttons(), options: .sortedKeys)
@@ -71,8 +73,8 @@ enum LiveButtonTests {
         button.bindLiveState(definition)
         let store = LiveButtonStore.shared
         try store.update(["id": "png-button", "iconPath": imagePath.path, "background": "#112233"])
-        precondition(button.image?.size == NSSize(width: 17, height: 17))
-        precondition(button.image?.isTemplate == true)
+        precondition(button.image?.size == NSSize(width: TouchBarIcon.symbolBox, height: TouchBarIcon.symbolBox))
+        precondition(button.image?.isTemplate == false, "layout tint #8e8e93 is baked into the PNG icon")
         let values = store.buttons().first { $0["id"] as? String == "png-button" }!
         precondition(values["icon"] is NSNull)
         precondition(values["iconPath"] as? String == imagePath.path)

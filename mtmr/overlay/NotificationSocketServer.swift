@@ -23,6 +23,16 @@ final class NotificationSocketServer {
         let seconds: Double?
     }
 
+    /// Extra commands registered by features (e.g. App Controls). Runs on the main queue with the whole
+    /// command object; returns extra reply fields, or throws LiveButtonError to reject.
+    typealias CommandHandler = ([String: Any]) throws -> [String: Any]
+    private var handlers: [String: CommandHandler] = [:]
+
+    func register(_ name: String, handler: @escaping CommandHandler) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        handlers[name] = handler
+    }
+
     private typealias Reply = [String: Any]
 
     private let queue = DispatchQueue(label: "MTMRNotificationSocket")
@@ -246,7 +256,15 @@ final class NotificationSocketServer {
             case "buttons":
                 return ["ok": true, "buttons": LiveButtonStore.shared.buttons()]
             default:
-                return rejected("Unknown command: \(command.cmd)")
+                guard let handler = handlers[command.cmd] else { return rejected("Unknown command: \(command.cmd)") }
+                guard let fields = try JSONSerialization.jsonObject(with: line) as? [String: Any] else {
+                    return rejected("Invalid JSON command")
+                }
+                do {
+                    return try handler(fields).merging(["ok": true]) { _, ok in ok }
+                } catch {
+                    return rejected(error.localizedDescription)
+                }
             }
             return ["ok": true]
         } catch {

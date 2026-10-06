@@ -33,7 +33,7 @@ If nominal N after left scaling is below 120, reserve a centred 120 pt floor (12
 
 ## Options
 
-All dimensions are points. `layouts/main.json` needs no changes.
+All dimensions are points. `layouts/template.json` needs no changes.
 
 | Where | Option | Default / rule |
 |---|---|---|
@@ -69,7 +69,7 @@ Right:         (877,100) (985,100)
 
 The 1 pt spacer retains the 17 pt gap after exit. Gaps to the notification are 16 left / 96 right; bar-edge margins remain equal.
 
-### (b) Four left icons (explicit test fixture, not layouts/main.json)
+### (b) Four left icons (explicit test fixture, not layouts/template.json)
 
 `Lw=30+1+4*75+5*8=371`, N0=`1085-742-32=311`. Target left width=`floor((1085-395-32)/2)=329`. Reduce by 42 pt, proportionally across four 30 pt capacities. Integer allocation gives icon widths **64,64,65,65** (reductions 11,11,10,10).
 

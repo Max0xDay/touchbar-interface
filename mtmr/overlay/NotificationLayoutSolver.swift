@@ -5,9 +5,12 @@ struct NotificationLayoutOptions: Decodable, Equatable {
     let minWidth: Double
     let maxWidth: Double?
     let fadeSeconds: Double
+    /// Shown as a notification whenever the bar is brought up (launch, layout load, back from Apple's bar).
+    let welcome: String?
 
-    init(padding: Double = 16, minWidth: Double? = nil, maxWidth: Double? = nil, fadeSeconds: Double = 0.35, maxChars: Int = 40) {
+    init(padding: Double = 16, minWidth: Double? = nil, maxWidth: Double? = nil, fadeSeconds: Double = 0.35, maxChars: Int = 40, welcome: String? = nil) {
         self.fadeSeconds = fadeSeconds
+        self.welcome = welcome
         self.padding = padding.rounded()
         self.minWidth = (minWidth ?? NotificationTextMetrics.preferredWidth(maxChars: maxChars)).rounded(.up)
         self.maxWidth = maxWidth?.rounded(.down)
@@ -19,6 +22,7 @@ struct NotificationLayoutOptions: Decodable, Equatable {
         case maxWidth
         case fadeSeconds
         case maxChars
+        case welcome
     }
 
     init(from decoder: Decoder) throws {
@@ -59,7 +63,8 @@ struct NotificationLayoutOptions: Decodable, Equatable {
         guard (0...2).contains(fadeSeconds) else {
             throw DecodingError.dataCorruptedError(forKey: .fadeSeconds, in: container, debugDescription: "fadeSeconds must be between 0 and 2")
         }
-        self.init(padding: padding, minWidth: minWidth, maxWidth: maxWidth, fadeSeconds: fadeSeconds)
+        let welcome = try container.decodeIfPresent(String.self, forKey: .welcome)
+        self.init(padding: padding, minWidth: minWidth, maxWidth: maxWidth, fadeSeconds: fadeSeconds, welcome: welcome)
     }
 }
 
