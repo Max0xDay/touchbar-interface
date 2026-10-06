@@ -1,0 +1,7 @@
+[
+  // Clean template: MTMR's esc on the far left. Apple's real control strip is drawn
+  // on the right by macOS (needs showControlStrip = true, see docs/runbook-build-mtmr.md).
+  // Our items go in between: add them with align "center" (scrolls, per-app via matchAppId)
+  // or align "right" (fixed zone just left of Apple's strip).
+  { "type": "escape", "align": "left", "width": 64 }
+]

@@ -57,7 +57,7 @@ prepare_sources() {
   for patch in "${scriptDirectory}"/patches/*.patch; do
     patch --quiet -p1 -d "${workDirectory}/src" < "${patch}"
   done
-  cp "${scriptDirectory}/overlay/main.swift" "${scriptDirectory}/overlay/BundledImage.swift" "${workDirectory}/src/"
+  cp "${scriptDirectory}"/overlay/*.swift "${workDirectory}/src/"
 }
 
 compile_bridge() {
