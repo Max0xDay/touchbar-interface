@@ -52,7 +52,7 @@ final class AppControlsCodePanel: NSView, AppControlsPanel {
     }
 
     private func layoutStack() {
-        stack.frame = NSRect(x: 0, y: 0, width: max(scroll.bounds.width, stack.fittingSize.width), height: bounds.height)
+        stack.frame = NSRect(x: 0, y: 0, width: stack.fittingSize.width, height: bounds.height)
     }
 
     func refresh() {

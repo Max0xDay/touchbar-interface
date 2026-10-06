@@ -8,6 +8,8 @@ enum TouchBarIcon {
     static let symbolBox: CGFloat = 18
     /// App icons and text badges (App Controls switcher and picker).
     static let appBox: CGFloat = 24
+    /// The App Controls switcher: a borderless app icon at full bar height.
+    static let switcherBox: CGFloat = 30
 
     static func symbol(_ name: String, box: CGFloat = symbolBox, tint: NSColor? = nil) -> NSImage? {
         guard let glyph = NSImage(systemSymbolName: name, accessibilityDescription: nil) else { return nil }

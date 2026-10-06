@@ -121,8 +121,10 @@ final class AppControlsView: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: 340, height: AppControlsStyle.height))
         wantsLayer = true
         layer?.masksToBounds = true
-        switcher.bezelStyle = .rounded
+        // Borderless: app icons carry their own shape, so the icon can use the full bar height.
+        switcher.isBordered = false
         switcher.imagePosition = .imageOnly
+        switcher.imageScaling = .scaleNone
         switcher.target = self
         switcher.action = #selector(switcherTapped)
         content.wantsLayer = true
@@ -184,7 +186,7 @@ final class AppControlsView: NSView {
         next.autoresizingMask = [.width, .height]
         let previous = panel
         panel = next
-        switcher.image = panelType.icon()
+        switcher.image = Self.switcherIcon(panelType)
         next.alphaValue = animated ? 0 : 1
         content.addSubview(next)
         next.refresh()
@@ -249,10 +251,14 @@ final class AppControlsView: NSView {
         }
     }
 
+    private static func switcherIcon(_ type: AppControlsPanel.Type) -> NSImage {
+        return TouchBarIcon.fitted(type.icon(), box: TouchBarIcon.switcherBox, template: false)
+    }
+
     private func layoutPicker() {
         guard let stack = picker.documentView else { return }
-        let width = max(picker.bounds.width, stack.fittingSize.width)
-        stack.frame = NSRect(x: 0, y: 0, width: width, height: picker.bounds.height)
+        // Exactly the fitting width: a wider frame stretches the fixed-width buttons and conflicts with their constraints.
+        stack.frame = NSRect(x: 0, y: 0, width: stack.fittingSize.width, height: picker.bounds.height)
     }
 
     private func closePicker(animated: Bool) {
@@ -260,7 +266,7 @@ final class AppControlsView: NSView {
         pickerTimer = nil
         guard picking else { return }
         picking = false
-        if let type = AppControlsRegistry.panel(AppControlsSelection.shared.id) { switcher.image = type.icon() }
+        if let type = AppControlsRegistry.panel(AppControlsSelection.shared.id) { switcher.image = Self.switcherIcon(type) }
         if animated {
             crossFade(show: content, hide: picker)
         } else {

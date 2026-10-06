@@ -7,6 +7,7 @@ enum LiveButtonTests {
         try checkVisibility(keepSlot: false, fadeSeconds: 0)
         try checkVisibility(keepSlot: true, fadeSeconds: 0)
         try checkVisibility(keepSlot: false, fadeSeconds: 0.35)
+        try checkStartHiddenDoesNotCoverExit()
         try checkDuplicateIds()
         print("Live button checks passed (standalone views, no Touch Bar)")
     }
@@ -91,6 +92,33 @@ enum LiveButtonTests {
         try store.update(["id": "text-button", "icon": NSNull()])
         precondition(textButton.title == "Caption", "Reset must restore the original text-only layout default")
         precondition(textButton.image == nil)
+    }
+
+    /// Regression 2026-10-06: a startHidden button kept its unsolved frame at x=0 with alpha 0 and swallowed taps on ✕.
+    private static func checkStartHiddenDoesNotCoverExit() throws {
+        var objects = try JSONSerialization.jsonObject(with: Data(LayoutViewTests.fixture.utf8)) as! [[String: Any]]
+        objects[2]["startHidden"] = true
+        let definitions = try JSONDecoder().decode([BarItemDefinition].self, from: JSONSerialization.data(withJSONObject: objects))
+        LiveButtonStore.shared.beginRebuild()
+        let (items, indexed) = try LayoutViewTests.makeItems(definitions)
+        // Earlier checks leave a visible override (state survives rebuilds); return to the layout default first.
+        try LiveButtonStore.shared.update(["id": "fixture-mic", "visible": NSNull()])
+        let notification = items[5] as! NotificationTouchBarItem
+        let container = NotificationLayoutView(items: items, definitions: indexed, notification: notification)
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 1085, height: 30))
+        host.addSubview(container)
+        host.layoutSubtreeIfNeeded()
+        let mic = items[2].view!
+        precondition(mic.isHidden, "A start-hidden button must not take touches")
+        if let hit = host.hitTest(NSPoint(x: items[0].view!.frame.midX, y: 15)) {
+            precondition(hit !== mic && !hit.isDescendant(of: mic), "Taps on ✕ must reach ✕")
+        }
+        try LiveButtonStore.shared.update(["id": "fixture-mic", "visible": true])
+        precondition(!mic.isHidden && mic.alphaValue == 1, "Showing the button must unhide it")
+        try LiveButtonStore.shared.update(["id": "fixture-mic", "visible": false])
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.3))
+        precondition(mic.isHidden, "A button hidden after a fade must not take touches")
+        try LiveButtonStore.shared.update(["id": "fixture-mic", "visible": NSNull()])
     }
 
     private static func checkVisibility(keepSlot: Bool, fadeSeconds: Double) throws {

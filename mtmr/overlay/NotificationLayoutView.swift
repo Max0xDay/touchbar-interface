@@ -147,6 +147,8 @@ final class NotificationLayoutView: NSView {
 
     private func transition(_ child: NSView, frame: NSRect, alpha: CGFloat, duration: Double) {
         child.wantsLayer = true
+        if alpha > 0 { child.isHidden = false }
+        defer { hideWhenFaded(child, alpha: alpha, after: duration) }
         guard let layer = child.layer else {
             child.frame = frame
             child.alphaValue = alpha
@@ -179,6 +181,19 @@ final class NotificationLayoutView: NSView {
         // #COMPLETION_DRIVE: Layer presentation geometry tracks AppKit frames correctly on the private Touch Bar host.
         // #SUGGEST_VERIFY: Observe rapid hide/show on hardware; model frames are set synchronously to the latest pure solution.
         layer.add(animation, forKey: "liveButtonLayout")
+    }
+
+    /// A transparent view still takes touches: an invisible, never-placed teams-mic sat on top of ✕ and swallowed
+    /// its taps (2026-10-06). Hide fully transparent views once their fade-out has finished.
+    private func hideWhenFaded(_ child: NSView, alpha: CGFloat, after duration: Double) {
+        guard alpha == 0 else { return }
+        guard duration > 0 else {
+            child.isHidden = true
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak child] in
+            if child?.alphaValue == 0 { child?.isHidden = true }
+        }
     }
 
     deinit {
