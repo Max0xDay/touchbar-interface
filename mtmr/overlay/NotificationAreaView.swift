@@ -19,8 +19,14 @@ final class NotificationAreaView: NSView {
     private let label = NSTextField(labelWithString: "")
     /// The source app's icon (e.g. Teams, Outlook, lob), drawn left of the text; text and icon centre as one group.
     private let iconView = NSImageView()
-    private static let iconSize: CGFloat = 18
+    /// Same size as the App Controls switcher icon. The text is placed as if the icon took `iconSlot`, so the
+    /// bigger icon reaches further left and the text stays where it was.
+    private static let iconSize = TouchBarIcon.switcherBox
+    private static let iconSlot: CGFloat = 18
     private static let iconGap: CGFloat = 6
+    /// A small pulsing dot at the top right while more than one notification is live.
+    private let moreDot = CALayer()
+    private var moreShown = false
     private var icon: NSImage?
     private var targetIcon: NSImage?
     private var shownIcon: NSImage?
@@ -75,6 +81,10 @@ final class NotificationAreaView: NSView {
         heading.cell?.wraps = false
         heading.layer?.opacity = 0
         addSubview(heading)
+        moreDot.backgroundColor = NSColor(white: 1, alpha: 0.85).cgColor
+        moreDot.cornerRadius = 2
+        moreDot.isHidden = true
+        layer?.addSublayer(moreDot)
         setContentHuggingPriority(.init(1), for: .horizontal)
         setContentCompressionResistancePriority(.init(1), for: .horizontal)
         NotificationDebug.hierarchy(self)
@@ -115,6 +125,10 @@ final class NotificationAreaView: NSView {
 
     override func layout() {
         super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        moreDot.frame = NSRect(x: bounds.maxX - 7, y: bounds.maxY - 7, width: 4, height: 4)
+        CATransaction.commit()
         positionContent()
         updateText(animated: false)
         if NotificationDebug.enabled {
@@ -151,17 +165,17 @@ final class NotificationAreaView: NSView {
             label.frame = NSRect(x: bounds.minX + min(inset, bounds.width / 2), y: labelY, width: available, height: labelHeight)
             return
         }
-        let iconSpace = Self.iconSize + Self.iconGap
+        let iconSpace = Self.iconSlot + Self.iconGap
         let measured = ceil((label.stringValue as NSString).size(withAttributes: [.font: font]).width) + 6
         let textWidth = min(max(0, available - iconSpace), measured)
         let groupX = bounds.midX - (iconSpace + textWidth) / 2
-        iconView.frame = NSRect(x: groupX, y: bounds.midY - Self.iconSize / 2, width: Self.iconSize, height: Self.iconSize)
+        iconView.frame = iconFrame(textX: groupX + iconSpace)
         label.frame = NSRect(x: groupX + iconSpace, y: labelY, width: textWidth, height: labelHeight)
     }
 
     /// Heading (top) and text (below, smaller), left-aligned with each other; icon and lines centre as one group.
     private func positionTwoLines(available: CGFloat) {
-        let iconSpace = shownIcon == nil ? 0 : Self.iconSize + Self.iconGap
+        let iconSpace = shownIcon == nil ? 0 : Self.iconSlot + Self.iconGap
         // Measured from the strings themselves (+ the text field's padding): the fields' intrinsic widths came out
         // short and cut "Meeting joined" to "Meeting join…" with plenty of room left.
         func width(_ text: String, _ font: NSFont) -> CGFloat {
@@ -169,7 +183,7 @@ final class NotificationAreaView: NSView {
         }
         let linesWidth = min(max(0, available - iconSpace), max(width(heading.stringValue, headingFont), width(label.stringValue, detailFont)))
         let groupX = bounds.midX - (iconSpace + linesWidth) / 2
-        iconView.frame = NSRect(x: groupX, y: bounds.midY - Self.iconSize / 2, width: Self.iconSize, height: Self.iconSize)
+        iconView.frame = iconFrame(textX: groupX + iconSpace)
         // Each line gets its field's full fitting height (the fields are transparent, so they may overlap):
         // shorter frames clipped descenders such as g, j, y.
         let headingHeight = ceil(heading.cell?.cellSize.height ?? 16)
@@ -178,8 +192,28 @@ final class NotificationAreaView: NSView {
         label.frame = NSRect(x: groupX + iconSpace, y: bounds.minY - 1, width: linesWidth, height: labelHeight)
     }
 
+    /// The icon ends `iconGap` left of the text, vertically centred.
+    private func iconFrame(textX: CGFloat) -> NSRect {
+        return NSRect(x: max(0, textX - Self.iconGap - Self.iconSize), y: bounds.midY - Self.iconSize / 2, width: Self.iconSize, height: Self.iconSize)
+    }
+
+    func showMore(_ more: Bool) {
+        guard more != moreShown else { return }
+        moreShown = more
+        moreDot.isHidden = !more
+        moreDot.removeAllAnimations()
+        guard more, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        let pulse = CABasicAnimation(keyPath: "opacity")
+        pulse.fromValue = 1
+        pulse.toValue = 0.2
+        pulse.duration = 1.1
+        pulse.autoreverses = true
+        pulse.repeatCount = .infinity
+        moreDot.add(pulse, forKey: "pulse")
+    }
+
     private func updateText(animated: Bool) {
-        let iconSpace = icon == nil ? 0 : Double(Self.iconSize + Self.iconGap)
+        let iconSpace = icon == nil ? 0 : Double(Self.iconSlot + Self.iconGap)
         let capacity = NotificationTextMetrics.capacity(width: max(0, Double(bounds.width) - iconSpace), inset: Double(inset), glyphWidth: Double(glyphWidth), maxChars: maxChars)
         // Two-line entries use proportional fonts; the label truncates them itself.
         let nextText = title == nil ? NotificationTextMetrics.truncated(text, capacity: capacity) : text

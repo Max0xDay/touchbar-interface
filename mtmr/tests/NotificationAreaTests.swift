@@ -40,9 +40,10 @@ struct NotificationAreaTests {
         withIcon.show(text: "Standup in 10 minutes", icon: NSImage(size: NSSize(width: 18, height: 18)))
         guard let iconView = withIcon.subviews.compactMap({ $0 as? NSImageView }).first else { preconditionFailure("Missing icon view") }
         let iconLabel = label(in: withIcon)
-        precondition(iconView.image != nil && iconView.frame.width == 18, "The entry's icon shows at 18 pt")
+        precondition(iconView.image != nil && iconView.frame.width == TouchBarIcon.switcherBox, "The entry's icon matches the switcher icon size")
         precondition(iconLabel.frame.minX - iconView.frame.maxX == 6, "The icon sits right beside the text")
-        precondition(abs((iconView.frame.minX + iconLabel.frame.maxX) / 2 - withIcon.bounds.midX) < 0.5, "Icon and text centre as one group")
+        precondition(abs((iconLabel.frame.minX - 24 + iconLabel.frame.maxX) / 2 - withIcon.bounds.midX) < 0.5, "Text centres as if the icon took an 18 pt slot")
+        precondition(iconLabel.frame.minX - iconView.frame.minX == 36, "The larger icon reaches further left")
         precondition(iconLabel.stringValue == "Standup in 10 minutes")
         withIcon.show(text: "no icon")
         precondition(iconView.image == nil && label(in: withIcon).frame.width == 292 - 24, "Without an icon the label spans the area again")

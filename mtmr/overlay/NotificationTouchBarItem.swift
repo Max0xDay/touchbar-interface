@@ -35,6 +35,11 @@ final class NotificationStore {
         return entries.isEmpty ? nil : entries[selectedIndex].title
     }
 
+    /// Number of live entries (the area shows a small dot when there is more than one).
+    var count: Int {
+        return entries.count
+    }
+
     private var now: Double { return ProcessInfo.processInfo.systemUptime }
 
     func notify(text: String, seconds: Double?, icon: NSImage? = nil, title: String? = nil) -> Bool {
@@ -132,8 +137,10 @@ final class NotificationTouchBarItem: NSCustomTouchBarItem {
         let notificationView = NotificationAreaView(maxChars: maxChars, fadeSeconds: self.layoutOptions.fadeSeconds)
         view = notificationView
         notificationView.show(text: NotificationStore.shared.text, icon: NotificationStore.shared.icon, title: NotificationStore.shared.title)
+        notificationView.showMore(NotificationStore.shared.count > 1)
         observer = NotificationCenter.default.addObserver(forName: NotificationStore.changed, object: nil, queue: .main) { [weak notificationView] _ in
             notificationView?.show(text: NotificationStore.shared.text, icon: NotificationStore.shared.icon, title: NotificationStore.shared.title)
+            notificationView?.showMore(NotificationStore.shared.count > 1)
         }
     }
 

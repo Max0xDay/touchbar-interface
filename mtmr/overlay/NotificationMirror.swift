@@ -71,8 +71,8 @@ final class NotificationMirror {
 
     private func icon(for app: String, options: NotificationMirrorOptions) -> NSImage? {
         // lob sessions notify through kitty: show the lob icon instead of kitty's.
-        if options.lobApps.contains(app) { return lobIcon(size: TouchBarIcon.appBox) }
-        return AppControlsApps.icon(app)
+        if options.lobApps.contains(app) { return lobIcon(size: TouchBarIcon.switcherBox) }
+        return AppControlsApps.icon(app, size: TouchBarIcon.switcherBox)
     }
 
     // MARK: Database (mirror queue only)

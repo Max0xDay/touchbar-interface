@@ -59,6 +59,8 @@ The notification item accepts a `mirror` object. With `mirror`, MTMR shows every
 - Each notification counts down on its own. A 10-minute notification never holds back a newer one.
 - When the shown notification expires, the newest remaining one shows.
 - Swipe left or right to move through all live notifications. A touch on the area pauses every countdown.
+- If more than one notification is live, a small pulsing dot shows at the top right of the area.
+- Notifications leave the bar only when their countdown ends. Dismissing the notification on the Mac does not remove it from the bar.
 
 ## Two-line notifications from scripts
 
@@ -67,5 +69,5 @@ bin/tbctl notify "Weekly sync" --title "Meeting joined" --app com.microsoft.team
 ```
 
 - `--title` adds the heading line. The text then shows smaller below the heading.
-- `--app` shows the icon of that app.
+- `--app` shows the icon of that app. The icon has the same size as the App Controls switcher icon (30 pt).
 - `teams/teams-watch` sends this notification when you join a Teams call. The second line is the meeting title: the title of the Teams call window, without " | Microsoft Teams". `teams/teams-mute meeting` prints that title.

@@ -305,6 +305,7 @@ class NotificationAreaTests(unittest.TestCase):
             sources = [repositoryRoot / "mtmr/overlay/NotificationLayoutSolver.swift",
                        repositoryRoot / "mtmr/overlay/NotificationAreaView.swift",
                        repositoryRoot / "mtmr/overlay/NotificationTouchBarItem.swift",
+                       repositoryRoot / "mtmr/overlay/TouchBarIcon.swift",
                        repositoryRoot / "mtmr/tests/NotificationAreaTests.swift"]
             compilation = compileSwiftHarness(executablePath, sources)
             self.assertEqual(compilation.returncode, 0, compilation.stderr)

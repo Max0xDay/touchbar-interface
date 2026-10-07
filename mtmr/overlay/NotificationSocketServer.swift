@@ -279,8 +279,9 @@ final class NotificationSocketServer {
     private static func appIcon(_ bundleId: String) -> NSImage? {
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else { return nil }
         let icon = NSWorkspace.shared.icon(forFile: url.path)
-        icon.size = NSSize(width: 18, height: 18)
-        return icon
+        icon.size = NSSize(width: 128, height: 128)
+        // Same size as the App Controls switcher icon.
+        return TouchBarIcon.fitted(icon, box: TouchBarIcon.switcherBox, template: false)
     }
 
     private func rejected(_ message: String) -> Reply {
