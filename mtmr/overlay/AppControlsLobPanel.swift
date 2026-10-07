@@ -82,8 +82,8 @@ final class AppControlsLobPanel: NSView, AppControlsPanel {
 /// six were unreachable through tmux).
 /// Working: for sessions tmux can reach, Claude's spinner line above the prompt (glyph, verb, ellipsis, e.g.
 /// "✢ Tinkering… (thought for 2s)"; done reads "✻ Baked for 3s · done 3:30 PM"). The status line's "esc to
-/// interrupt" is not used: narrow panes truncate it. For unreachable sessions: CPU use of at least 8 % over the
-/// last poll (working measured ~12 %, idle 0.3–3.7 %).
+/// interrupt" is not used: narrow panes truncate it. For unreachable sessions: CPU use of at least 8 % averaged
+/// over 6 s (working measured ~12 %, idle 0.3–3.7 % with brief spikes to ~8 %); a spell under 15 s never counts as finished.
 /// Delegate: a process running pi-delegate.py anywhere below the session's Claude process (it overrides working).
 final class LobMonitor {
     enum State: Equatable {
@@ -111,19 +111,26 @@ final class LobMonitor {
         let name: String
         let working: Bool
         let delegating: Bool
+        /// Working was guessed from CPU use (session unreachable through tmux).
+        let fromCPU: Bool
     }
 
     static let shared = LobMonitor()
     /// A finished session without a reply turns idle after this long.
     private static let finishedFor: TimeInterval = 30 * 60
     private static let busyCPU = 0.08
+    /// CPU use is averaged over this window: idle Claude spikes past 8 % for a moment (seen 2026-10-07), real work holds it.
+    private static let cpuWindow: Double = 6
+    /// A CPU-guessed working spell shorter than this was a spike: it goes back to idle, not to finished.
+    private static let minimumCPUWork: TimeInterval = 15
     private static let projectPattern = try! NSRegularExpression(pattern: "Active project: ([^.]+)\\.")
     private static let spinnerPattern = try! NSRegularExpression(pattern: "^\\S\\s+\\p{Lu}\\p{Ll}+…")
 
     private(set) var sessions: [Session] = []
     private var timer: Timer?
     private var polling = false
-    private var previousCPU: [Int32: (seconds: Double, at: Double)] = [:]
+    /// Recent CPU samples per Claude process, oldest first, covering about `cpuWindow` seconds.
+    private var cpuHistory: [Int32: [(seconds: Double, at: Double)]] = [:]
     private let queue = DispatchQueue(label: "MTMRLobMonitor")
     private lazy var tmux: String? = ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"].first { FileManager.default.isExecutableFile(atPath: $0) }
 
@@ -163,21 +170,23 @@ final class LobMonitor {
         let now = ProcessInfo.processInfo.systemUptime
         var readings: [Reading] = []
         for process in processes {
-            let previous = previousCPU[process.pid]
-            previousCPU[process.pid] = (process.cpuSeconds, now)
+            var history = (cpuHistory[process.pid] ?? []) + [(process.cpuSeconds, now)]
+            history.removeAll { now - $0.at > Self.cpuWindow + 1 }
+            cpuHistory[process.pid] = history
             if let tmux = tmux, let pane = panes[process.pid] {
                 let screen = Self.run(tmux, ["capture-pane", "-p", "-t", pane.pane]) ?? ""
-                readings.append(Reading(pid: process.pid, name: Self.displayName(session: pane.session), working: Self.isWorking(screen), delegating: process.delegating))
+                readings.append(Reading(pid: process.pid, name: Self.displayName(session: pane.session), working: Self.isWorking(screen), delegating: process.delegating, fromCPU: false))
             } else {
+                // Busy only when the average over the whole window is high; a full window is needed first.
                 var busy = false
-                if let previous = previous, now > previous.at {
-                    busy = (process.cpuSeconds - previous.seconds) / (now - previous.at) >= Self.busyCPU
+                if let oldest = history.first, now - oldest.at >= Self.cpuWindow - 1 {
+                    busy = (process.cpuSeconds - oldest.seconds) / (now - oldest.at) >= Self.busyCPU
                 }
-                readings.append(Reading(pid: process.pid, name: process.project, working: busy, delegating: process.delegating))
+                readings.append(Reading(pid: process.pid, name: process.project, working: busy, delegating: process.delegating, fromCPU: true))
             }
         }
         let alive = Set(processes.map { $0.pid })
-        previousCPU = previousCPU.filter { alive.contains($0.key) }
+        cpuHistory = cpuHistory.filter { alive.contains($0.key) }
         return readings.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
@@ -257,6 +266,7 @@ final class LobMonitor {
                 if case let .working(since)? = before { state = .working(since: since) } else { state = .working(since: now) }
             } else {
                 switch before {
+                case let .working(since)? where reading.fromCPU && now.timeIntervalSince(since) < Self.minimumCPUWork: state = .idle
                 case .working?, .delegating?: state = .finished(at: now)
                 case let .finished(at)?: state = now.timeIntervalSince(at) > Self.finishedFor ? .idle : .finished(at: at)
                 default: state = .idle

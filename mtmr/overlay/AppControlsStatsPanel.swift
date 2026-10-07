@@ -1,8 +1,8 @@
 import Cocoa
 import IOKit
 
-/// Stats: four cells across the zone, each a small caption and a value:
-/// CPU (total + one bar per core, efficiency | performance) · MEM (% + meter) · TEMP · NET (down / up).
+/// Stats (v4): four cells spread across the zone:
+/// CPU (ring with the total + a heat grid, one square per core) · MEM (ring) · TEMP (thermometer + value) · NET (↓ / ↑).
 /// Read directly from the system (the Stats app has no API); tapping the panel opens Stats.
 final class AppControlsStatsPanel: NSView, AppControlsPanel {
     static let id = "stats"
@@ -38,85 +38,137 @@ final class AppControlsStatsPanel: NSView, AppControlsPanel {
 
     @objc private func openApp() { AppControlsApps.open(Self.bundleId) }
 
-    // MARK: Drawing
+    // MARK: Drawing (v4: rings and a heat grid)
 
-    /// Relative cell widths: CPU, MEM, TEMP, NET.
-    private static let weights: [CGFloat] = [0.36, 0.22, 0.17, 0.25]
-    private static let cellGap: CGFloat = 6
+    private static let ringSize: CGFloat = 28
+    private static let gridCell: CGFloat = 7
+    private static let gridGap: CGFloat = 2
+    private static let netWidth: CGFloat = 50
+    private static let tempWidth: CGFloat = 44
 
+    /// Natural cell widths; the space left over is shared out evenly between the cells.
     override func draw(_: NSRect) {
-        let available = bounds.width - Self.cellGap * CGFloat(Self.weights.count - 1)
+        let cpuWidth = Self.ringSize + 5 + max(Self.captionWidth("CPU"), gridWidth)
+        let memWidth = Self.ringSize + 5 + Self.captionWidth("MEM")
+        let widths = [cpuWidth, memWidth, Self.tempWidth, Self.netWidth]
+        let spare = max(0, bounds.width - widths.reduce(0, +))
+        let gap = floor(spare / CGFloat(widths.count - 1))
         var x: CGFloat = 0
         var cells: [NSRect] = []
-        for weight in Self.weights {
-            let width = floor(available * weight)
+        for width in widths {
             cells.append(NSRect(x: x, y: 0, width: width, height: bounds.height))
-            x += width + Self.cellGap
+            x += width + gap
         }
         drawCPU(in: cells[0])
-        drawGauge(in: cells[1], caption: "MEM", value: snapshot.memory.map { Self.percent($0) }, fraction: snapshot.memory)
-        drawGauge(in: cells[2], caption: "TEMP", value: snapshot.temperature.map { "\(Int($0.rounded()))°" }, fraction: nil)
+        drawRing(at: cells[1].minX, fraction: snapshot.memory)
+        drawCaption("MEM", at: NSPoint(x: cells[1].minX + Self.ringSize + 5, y: bounds.midY - 5))
+        drawTemperature(in: cells[2])
         drawNetwork(in: cells[3])
     }
 
-    private func drawCaption(_ text: String, at point: NSPoint, width: CGFloat) {
-        Self.draw(text, font: NSFont.systemFont(ofSize: 8, weight: .semibold), color: AppControlsStyle.secondaryText, in: NSRect(x: point.x, y: point.y, width: width, height: 10))
+    private static func captionWidth(_ text: String) -> CGFloat {
+        return ceil((text as NSString).size(withAttributes: [.font: captionFont]).width)
     }
 
-    private func drawValue(_ text: String, at point: NSPoint, width: CGFloat, size: CGFloat = 13) {
-        Self.draw(text, font: NSFont.monospacedDigitSystemFont(ofSize: size, weight: .semibold), color: AppControlsStyle.primaryText, in: NSRect(x: point.x, y: point.y, width: width, height: size + 3))
+    private static let captionFont = NSFont.systemFont(ofSize: 8, weight: .semibold)
+
+    private func drawCaption(_ text: String, at point: NSPoint) {
+        Self.draw(text, font: Self.captionFont, color: AppControlsStyle.secondaryText, in: NSRect(x: point.x, y: point.y, width: Self.captionWidth(text) + 2, height: 10))
     }
 
-    /// Caption (top), value (middle) and, with a fraction, a thin meter (bottom).
-    private func drawGauge(in cell: NSRect, caption: String, value: String?, fraction: Double?, warnAt: Double = 0.7, badAt: Double = 0.9) {
-        drawCaption(caption, at: NSPoint(x: cell.minX, y: 20), width: cell.width)
-        drawValue(value ?? "–", at: NSPoint(x: cell.minX, y: 5), width: cell.width)
-        guard let fraction = fraction else { return }
-        drawMeter(NSRect(x: cell.minX, y: 1, width: cell.width, height: 3), fraction: fraction, warnAt: warnAt, badAt: badAt)
+    /// A ring gauge with the percentage inside (no % sign: the ring says it). Colour turns orange / red when high.
+    private func drawRing(at x: CGFloat, fraction: Double?) {
+        let size = Self.ringSize
+        let box = NSRect(x: x, y: bounds.midY - size / 2, width: size, height: size).insetBy(dx: 1.5, dy: 1.5)
+        let centre = NSPoint(x: box.midX, y: box.midY)
+        let track = NSBezierPath(ovalIn: box)
+        track.lineWidth = 3
+        AppControlsStyle.track.setStroke()
+        track.stroke()
+        if let fraction = fraction {
+            let clamped = CGFloat(min(1, max(0, fraction)))
+            if clamped > 0 {
+                // Clockwise from 12 o'clock.
+                let arc = NSBezierPath()
+                arc.appendArc(withCenter: centre, radius: box.width / 2, startAngle: 90, endAngle: 90 - 360 * clamped, clockwise: true)
+                arc.lineWidth = 3
+                arc.lineCapStyle = .round
+                Self.meterColour(Double(clamped), warnAt: 0.7, badAt: 0.9).setStroke()
+                arc.stroke()
+            }
+        }
+        let text = fraction.map { "\(Int(($0 * 100).rounded()))" } ?? "–"
+        let font = NSFont.monospacedDigitSystemFont(ofSize: text.count > 2 ? 8.5 : 10, weight: .semibold)
+        Self.drawCentred(text, font: font, color: AppControlsStyle.primaryText, at: centre)
     }
 
-    /// Total on the left; one vertical bar per core on the right, efficiency cores then performance cores.
-    private func drawCPU(in cell: NSRect) {
-        let textWidth: CGFloat = 34
-        drawCaption("CPU", at: NSPoint(x: cell.minX, y: 20), width: textWidth)
-        drawValue(snapshot.cpu.map { Self.percent($0) } ?? "–", at: NSPoint(x: cell.minX, y: 5), width: textWidth + 6)
-        let cores = snapshot.cores
-        guard !cores.isEmpty else { return }
+    private var gridWidth: CGFloat {
+        let columns = CGFloat(gridColumns)
+        return columns * Self.gridCell + max(0, columns - 1) * Self.gridGap
+    }
+
+    private var gridColumns: Int {
+        let cores = max(snapshot.cores.count, 1)
         let efficiency = SystemMetrics.shared.efficiencyCores
-        let groupGap: CGFloat = efficiency > 0 && efficiency < cores.count ? 4 : 0
-        let barsX = cell.minX + textWidth + 6
-        let barsWidth = cell.maxX - barsX
-        let spacing: CGFloat = 2
-        let barWidth = max(2, (barsWidth - groupGap - spacing * CGFloat(cores.count - 1)) / CGFloat(cores.count))
-        var x = barsX
-        for (index, load) in cores.enumerated() {
-            if index == efficiency && groupGap > 0 { x += groupGap }
-            let track = NSRect(x: x, y: 2, width: barWidth, height: 24)
-            AppControlsStyle.track.setFill()
-            NSBezierPath(roundedRect: track, xRadius: 1.5, yRadius: 1.5).fill()
-            let height = max(1.5, track.height * CGFloat(min(1, max(0, load))))
-            Self.meterColour(load, warnAt: 0.7, badAt: 0.9).setFill()
-            NSBezierPath(roundedRect: NSRect(x: x, y: 2, width: barWidth, height: height), xRadius: 1.5, yRadius: 1.5).fill()
-            x += barWidth + spacing
+        return max(efficiency, cores - efficiency, 1)
+    }
+
+    /// Total in the ring; beside it the caption and one square per core, efficiency row on top, performance row
+    /// below, brighter the busier (orange / red when hot).
+    private func drawCPU(in cell: NSRect) {
+        drawRing(at: cell.minX, fraction: snapshot.cpu)
+        let x = cell.minX + Self.ringSize + 5
+        drawCaption("CPU", at: NSPoint(x: x, y: 19))
+        let cores = snapshot.cores
+        let efficiency = SystemMetrics.shared.efficiencyCores
+        let rows: [ArraySlice<Double>] = efficiency > 0 && efficiency < cores.count
+            ? [cores[..<efficiency], cores[efficiency...]]
+            : [cores[...]]
+        for (rowIndex, row) in rows.enumerated() {
+            let y = rows.count == 1 ? 6 : 11 - CGFloat(rowIndex) * (Self.gridCell + Self.gridGap) - 1
+            for (column, load) in row.enumerated() {
+                let square = NSRect(x: x + CGFloat(column) * (Self.gridCell + Self.gridGap), y: y, width: Self.gridCell, height: Self.gridCell)
+                Self.heatColour(load).setFill()
+                NSBezierPath(roundedRect: square, xRadius: 1.5, yRadius: 1.5).fill()
+            }
         }
     }
 
-    private func drawNetwork(in cell: NSRect) {
-        drawCaption("NET", at: NSPoint(x: cell.minX, y: 20), width: cell.width)
-        let down = snapshot.downloadBytesPerSecond.map { "↓" + Self.rate($0) } ?? "↓ –"
-        let up = snapshot.uploadBytesPerSecond.map { "↑" + Self.rate($0) } ?? "↑ –"
-        drawValue(down, at: NSPoint(x: cell.minX, y: 9), width: cell.width, size: 10)
-        drawValue(up, at: NSPoint(x: cell.minX, y: 0), width: cell.width, size: 10)
+    /// Thermometer coloured by heat, value beside it. No meter (user request).
+    private func drawTemperature(in cell: NSRect) {
+        let temperature = snapshot.temperature
+        let colour: NSColor = temperature.map { $0 >= 90 ? AppControlsStyle.bad : $0 >= 75 ? AppControlsStyle.warn : AppControlsStyle.neutralFill } ?? AppControlsStyle.secondaryText
+        if let glyph = TouchBarIcon.symbol("thermometer", box: 16, tint: colour) {
+            glyph.draw(in: NSRect(x: cell.minX, y: bounds.midY - 8, width: 16, height: 16))
+        }
+        let text = temperature.map { "\(Int($0.rounded()))°" } ?? "–"
+        Self.draw(text, font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .semibold), color: AppControlsStyle.primaryText,
+                  in: NSRect(x: cell.minX + 17, y: bounds.midY - 8, width: cell.width - 17, height: 16))
     }
 
-    private func drawMeter(_ rect: NSRect, fraction: Double, warnAt: Double, badAt: Double) {
-        let radius = rect.height / 2
-        AppControlsStyle.track.setFill()
-        NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
-        let clamped = min(1, max(0, fraction))
-        guard clamped > 0 else { return }
-        Self.meterColour(clamped, warnAt: warnAt, badAt: badAt).setFill()
-        NSBezierPath(roundedRect: NSRect(x: rect.minX, y: rect.minY, width: max(rect.height, rect.width * CGFloat(clamped)), height: rect.height), xRadius: radius, yRadius: radius).fill()
+    /// Down and up, one per line, each with a coloured arrow.
+    private func drawNetwork(in cell: NSRect) {
+        let lines: [(arrow: String, colour: NSColor, bytes: Double?, y: CGFloat)] = [
+            ("↓", .systemBlue, snapshot.downloadBytesPerSecond, 15),
+            ("↑", .systemGreen, snapshot.uploadBytesPerSecond, 2),
+        ]
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+        for line in lines {
+            Self.draw(line.arrow, font: font, color: line.colour, in: NSRect(x: cell.minX, y: line.y, width: 10, height: 14))
+            Self.draw(line.bytes.map { Self.rate($0) } ?? "–", font: font, color: AppControlsStyle.primaryText, in: NSRect(x: cell.minX + 10, y: line.y, width: cell.width - 10, height: 14))
+        }
+    }
+
+    private static func heatColour(_ load: Double) -> NSColor {
+        if load >= 0.9 { return AppControlsStyle.bad }
+        if load >= 0.7 { return AppControlsStyle.warn }
+        return NSColor(white: 1, alpha: 0.14 + 0.76 * CGFloat(min(1, max(0, load)) / 0.7))
+    }
+
+    private static func drawCentred(_ text: String, font: NSFont, color: NSColor, at centre: NSPoint) {
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+        let size = (text as NSString).size(withAttributes: attributes)
+        (text as NSString).draw(at: NSPoint(x: centre.x - size.width / 2, y: centre.y - size.height / 2), withAttributes: attributes)
     }
 
     private static func meterColour(_ fraction: Double, warnAt: Double, badAt: Double) -> NSColor {

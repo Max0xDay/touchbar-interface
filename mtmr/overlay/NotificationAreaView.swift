@@ -152,7 +152,8 @@ final class NotificationAreaView: NSView {
             return
         }
         let iconSpace = Self.iconSize + Self.iconGap
-        let textWidth = min(max(0, available - iconSpace), ceil(label.intrinsicContentSize.width))
+        let measured = ceil((label.stringValue as NSString).size(withAttributes: [.font: font]).width) + 6
+        let textWidth = min(max(0, available - iconSpace), measured)
         let groupX = bounds.midX - (iconSpace + textWidth) / 2
         iconView.frame = NSRect(x: groupX, y: bounds.midY - Self.iconSize / 2, width: Self.iconSize, height: Self.iconSize)
         label.frame = NSRect(x: groupX + iconSpace, y: labelY, width: textWidth, height: labelHeight)
@@ -161,11 +162,20 @@ final class NotificationAreaView: NSView {
     /// Heading (top) and text (below, smaller), left-aligned with each other; icon and lines centre as one group.
     private func positionTwoLines(available: CGFloat) {
         let iconSpace = shownIcon == nil ? 0 : Self.iconSize + Self.iconGap
-        let linesWidth = min(max(0, available - iconSpace), ceil(max(heading.intrinsicContentSize.width, label.intrinsicContentSize.width)))
+        // Measured from the strings themselves (+ the text field's padding): the fields' intrinsic widths came out
+        // short and cut "Meeting joined" to "Meeting join…" with plenty of room left.
+        func width(_ text: String, _ font: NSFont) -> CGFloat {
+            return ceil((text as NSString).size(withAttributes: [.font: font]).width) + 6
+        }
+        let linesWidth = min(max(0, available - iconSpace), max(width(heading.stringValue, headingFont), width(label.stringValue, detailFont)))
         let groupX = bounds.midX - (iconSpace + linesWidth) / 2
         iconView.frame = NSRect(x: groupX, y: bounds.midY - Self.iconSize / 2, width: Self.iconSize, height: Self.iconSize)
-        heading.frame = NSRect(x: groupX + iconSpace, y: bounds.midY, width: linesWidth, height: 15)
-        label.frame = NSRect(x: groupX + iconSpace, y: bounds.midY - 13, width: linesWidth, height: 13)
+        // Each line gets its field's full fitting height (the fields are transparent, so they may overlap):
+        // shorter frames clipped descenders such as g, j, y.
+        let headingHeight = ceil(heading.cell?.cellSize.height ?? 16)
+        let labelHeight = ceil(label.cell?.cellSize.height ?? 14)
+        heading.frame = NSRect(x: groupX + iconSpace, y: bounds.maxY - headingHeight + 1, width: linesWidth, height: headingHeight)
+        label.frame = NSRect(x: groupX + iconSpace, y: bounds.minY - 1, width: linesWidth, height: labelHeight)
     }
 
     private func updateText(animated: Bool) {

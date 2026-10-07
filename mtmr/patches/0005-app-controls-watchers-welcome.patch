@@ -60,7 +60,34 @@
          touchBar = NSTouchBar()
          jsonItems = newJsonItems
          itemDefinitions = [:]
-@@ -220,6 +228,9 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
+@@ -177,7 +185,9 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
+         return changed
+     }
+     
+-    func prepareTouchBar() {
++    /// Returns whether the items changed (false: the bar on screen is still current).
++    @discardableResult
++    func prepareTouchBar() -> Bool {
+         let prevItems = items
+         let prevSwipeItems = swipeItems
+ 
+@@ -189,7 +199,7 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
+             items = prevItems
+             swipeItems = prevSwipeItems
+             bindLiveButtons()
+-            return
++            return false
+         }
+         bindLiveButtons()
+         
+@@ -214,20 +224,24 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
+ 
+         basicView = BasicView(identifier: basicViewIdentifier, items:leftItems + [centerArea] + rightItems, swipeItems: swipeItems, itemDefinitions: itemDefinitions)
+         basicView?.legacyGesturesEnabled = AppSettings.multitouchGestures
++        return true
+     }
+ 
+     @objc func activeApplicationChanged(_: Notification) {
          updateActiveApp()
      }
  
@@ -70,7 +97,17 @@
      private var hasNotificationArea: Bool {
          return jsonItems.contains { $0.type.isNotification }
      }
-@@ -349,6 +360,10 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
+ 
+     func updateActiveApp() {
+         if hasNotificationArea {
+-            prepareTouchBar()
+-            presentTouchBar()
++            // Re-presenting an unchanged bar on every app switch made it visibly pulse; present only when needed.
++            if prepareTouchBar() || barHidden { presentTouchBar() }
+             return
+         }
+         if frontmostApplicationIdentifier != nil && blacklistAppIdentifiers.firstIndex(of: frontmostApplicationIdentifier!) != nil {
+@@ -349,6 +363,10 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
          } else {
              presentSystemModal(touchBar, placement: 1, systemTrayItemIdentifier: .controlStripItem)
          }
@@ -81,7 +118,7 @@
          updateControlStripPresence()
      }
  
-@@ -356,6 +371,7 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
+@@ -356,6 +374,7 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
          if touchBarContainsAnyItems() {
              minimizeSystemModal(touchBar)
          }
@@ -89,7 +126,7 @@
          updateControlStripPresence()
      }
  
-@@ -377,6 +393,8 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
+@@ -377,6 +396,8 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
          switch item.type {
          case let .notification(maxChars: maxChars, defaultSeconds: defaultSeconds, layoutOptions: layoutOptions):
              barItem = NotificationTouchBarItem(identifier: identifier, maxChars: maxChars, defaultSeconds: defaultSeconds, layoutOptions: layoutOptions)
