@@ -28,13 +28,25 @@ from urllib.parse import urlparse
 # Fix these from `teams-mute discover` output; nothing else in the file should need to change.
 # ---------------------------------------------------------------------------------------------
 # #SUGGEST_VERIFY: join a test call, run `teams-mute status` muted and unmuted, compare with the real mic state
-MIC_BUTTON_SELECTORS = ['[aria-label*="mic" i]']
-MUTED_LABEL_PATTERN = "^unmute"
-UNMUTED_LABEL_PATTERN = "^mute"
+# Each device: the button selector, the label a real button must start with ("mic" alone also matches
+# "Microsoft ..." in the main window outside calls, Verified 2026-10-07), and label pattern -> state.
+# Camera labels name the next action too: "Turn camera on" = camera off (Verified 2026-10-07).
+DEVICES = {
+    "mic": {
+        "selector": '[aria-label*="mic" i]',
+        "label": "^(un)?mute",
+        "states": [["^unmute", "muted"], ["^mute", "unmuted"]],
+    },
+    "camera": {
+        "selector": '[aria-label*="camera" i]',
+        "label": "^turn camera (on|off)",
+        "states": [["^turn camera on", "off"], ["^turn camera off", "on"]],
+    },
+}
 # #COMPLETION_DRIVE: call pages are served from these hosts (cliui research filtered on teams.microsoft.com)
 # #SUGGEST_VERIFY: if status always reports no-call during a call, widen this list after checking the host of the call window
 TEAMS_HOST_SUFFIXES = ("teams.microsoft.com", "teams.cloud.microsoft", "teams.live.com")
-DISCOVER_NAME_PATTERN = "mic|mute"
+DISCOVER_NAME_PATTERN = "mic|mute|camera|video"
 
 DEFAULT_DEBUG_PORT = 9333
 LOOPBACK_ADDRESS = "127.0.0.1"
@@ -54,10 +66,12 @@ EXIT_PORT_UNREACHABLE = 3
 EXIT_NOT_IN_CALL = 4
 
 STATE_NO_CALL = "no-call"
-STATE_MUTED = "muted"
-STATE_UNMUTED = "unmuted"
 STATE_UNKNOWN = "unknown"
-VALID_PAGE_STATES = (STATE_NO_CALL, STATE_MUTED, STATE_UNMUTED, STATE_UNKNOWN)
+# Command -> (device, desired state); None = keep the current state (status), "toggle" = the other state.
+COMMANDS = {
+    "status": ("mic", None), "toggle": ("mic", "toggle"), "mute": ("mic", "muted"), "unmute": ("mic", "unmuted"),
+    "camera-status": ("camera", None), "camera-toggle": ("camera", "toggle"), "camera-on": ("camera", "on"), "camera-off": ("camera", "off"),
+}
 
 OPCODE_CONTINUATION = 0x0
 OPCODE_TEXT = 0x1
@@ -247,27 +261,36 @@ class CdpSession:
 # ---------------------------------------------------------------------------------------------
 # Page scripts. Tagged comments let the local fake server tell them apart.
 # ---------------------------------------------------------------------------------------------
-FIND_BUTTON_SCRIPT = """
-  var selectors = %(selectors)s;
+def find_button_script(device):
+    return """
   var button = null;
-  for (var index = 0; index < selectors.length && !button; index++) {
-    button = document.querySelector(selectors[index]);
+  var label = new RegExp(%(label)s, "i");
+  var nodes = document.querySelectorAll(%(selector)s);
+  for (var n = 0; n < nodes.length && !button; n++) {
+    if (label.test((nodes[n].getAttribute("aria-label") || "").trim())) button = nodes[n];
   }
-""" % {"selectors": json.dumps(MIC_BUTTON_SELECTORS)}
+""" % {"selector": json.dumps(DEVICES[device]["selector"]), "label": json.dumps(DEVICES[device]["label"])}
 
-STATE_EXPRESSION = "/*teams-cdp:state*/(function () {" + FIND_BUTTON_SCRIPT + """
+
+def state_expression(device):
+    return "/*teams-cdp:state*/(function () {" + find_button_script(device) + """
   if (!button) return "no-call";
-  var label = (button.getAttribute("aria-label") || "").trim();
-  if (new RegExp(%(mutedPattern)s, "i").test(label)) return "muted";
-  if (new RegExp(%(unmutedPattern)s, "i").test(label)) return "unmuted";
+  var text = (button.getAttribute("aria-label") || "").trim();
+  var states = %(states)s;
+  for (var s = 0; s < states.length; s++) {
+    if (new RegExp(states[s][0], "i").test(text)) return states[s][1];
+  }
   return "unknown";
-})()""" % {"mutedPattern": json.dumps(MUTED_LABEL_PATTERN), "unmutedPattern": json.dumps(UNMUTED_LABEL_PATTERN)}
+})()""" % {"states": json.dumps(DEVICES[device]["states"])}
 
-CLICK_EXPRESSION = "/*teams-cdp:click*/(function () {" + FIND_BUTTON_SCRIPT + """
+
+def click_expression(device):
+    return "/*teams-cdp:click*/(function () {" + find_button_script(device) + """
   if (!button) return "no-call";
   button.click();
   return "clicked";
 })()"""
+
 
 DISCOVER_EXPRESSION = """/*teams-cdp:discover*/(function () {
   var pattern = new RegExp(%(pattern)s, "i");
@@ -355,7 +378,7 @@ def run_meeting(port, deadline):
     for target in list_candidate_targets(port, deadline):
         session = CdpSession(port, target["id"], deadline)
         try:
-            state = read_state(session)
+            state = read_state(session, "mic")
         finally:
             session.close()
         if state != STATE_NO_CALL:
@@ -364,19 +387,19 @@ def run_meeting(port, deadline):
     raise CdpError("not in a call (no mic button found)", EXIT_NOT_IN_CALL)
 
 
-def read_state(session):
-    state = session.evaluate(STATE_EXPRESSION)
-    if state not in VALID_PAGE_STATES:
+def read_state(session, device):
+    state = session.evaluate(state_expression(device))
+    if state not in [STATE_NO_CALL, STATE_UNKNOWN] + [name for _, name in DEVICES[device]["states"]]:
         raise CdpError("unexpected state value from page")
     return state
 
 
-def open_call_session(port, deadline):
-    """Returns (session, state) for the first target that has the mic button, or (None, STATE_NO_CALL)."""
+def open_call_session(port, deadline, device):
+    """Returns (session, state) for the first target that has the device's button, or (None, STATE_NO_CALL)."""
     for targetIdentifier in list_candidate_target_identifiers(port, deadline):
         session = CdpSession(port, targetIdentifier, deadline)
         try:
-            state = read_state(session)
+            state = read_state(session, device)
         except BaseException:
             session.close()
             raise
@@ -386,19 +409,19 @@ def open_call_session(port, deadline):
     return None, STATE_NO_CALL
 
 
-def click_and_read_state(session):
-    if session.evaluate(CLICK_EXPRESSION) != "clicked":
-        raise CdpError("mic button disappeared before the click")
+def click_and_read_state(session, device):
+    if session.evaluate(click_expression(device)) != "clicked":
+        raise CdpError("%s button disappeared before the click" % device)
     time.sleep(POST_CLICK_SETTLE_SECONDS)
-    return read_state(session)
+    return read_state(session, device)
 
 
-def change_mute_state(session, currentState, desiredState):
+def change_state(session, device, currentState, desiredState):
     if currentState == desiredState:
         return currentState
-    newState = click_and_read_state(session)
+    newState = click_and_read_state(session, device)
     if newState != desiredState:
-        raise CdpError("clicked the mic button but state is %s, expected %s" % (newState, desiredState))
+        raise CdpError("clicked the %s button but state is %s, expected %s" % (device, newState, desiredState))
     return newState
 
 
@@ -434,34 +457,34 @@ def collect_discover_lines(port, deadline):
 def run_discover(port, deadline):
     lines = collect_discover_lines(port, deadline)
     if not lines:
-        raise CdpError("no mic/mute button candidates found; join a call first", EXIT_NOT_IN_CALL)
+        raise CdpError("no mic/camera button candidates found; join a call first", EXIT_NOT_IN_CALL)
     print("\n".join(lines))
     return EXIT_OK
 
 
 def run_state_command(command, port, deadline):
-    session, state = open_call_session(port, deadline)
+    device, desired = COMMANDS[command]
+    session, state = open_call_session(port, deadline, device)
     if session is None:
-        if command == "status":
+        if desired is None:
             print(STATE_NO_CALL)
-        raise CdpError("not in a call (no mic button found)", EXIT_NOT_IN_CALL)
+        raise CdpError("not in a call (no %s button found)" % device, EXIT_NOT_IN_CALL)
     try:
         if state == STATE_UNKNOWN:
-            raise CdpError("mic button found but its aria-label is neither mute nor unmute; run discover")
-        if command == "toggle":
-            desiredState = STATE_UNMUTED if state == STATE_MUTED else STATE_MUTED
-        else:
-            desiredState = {"status": state, "mute": STATE_MUTED, "unmute": STATE_UNMUTED}[command]
-        print(change_mute_state(session, state, desiredState))
+            raise CdpError("%s button found but its aria-label matches no known state; run discover" % device)
+        names = [name for _, name in DEVICES[device]["states"]]
+        if desired == "toggle":
+            desired = names[1] if state == names[0] else names[0]
+        print(change_state(session, device, state, desired or state))
     finally:
         session.close()
     return EXIT_OK
 
 
 def main(arguments):
-    commands = ("status", "toggle", "mute", "unmute", "discover", "meeting")
+    commands = tuple(COMMANDS) + ("discover", "meeting")
     if len(arguments) != 1 or arguments[0] not in commands:
-        print("usage: teams-cdp.py status|toggle|mute|unmute|discover|meeting", file=sys.stderr)
+        print("usage: teams-cdp.py %s" % "|".join(commands), file=sys.stderr)
         return EXIT_ERROR
     try:
         port = read_debug_port()

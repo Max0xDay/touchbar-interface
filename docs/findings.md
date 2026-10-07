@@ -60,6 +60,26 @@ Repo: https://github.com/Toxblh/MTMR (MIT licence).
   - Two sessions run on an orphaned tmux server (pid 7137). Its socket was replaced, so tmux cannot reach them. Never send that server SIGUSR1: it would fight the current server for the default socket.
   - Working Claude uses about 12 % CPU. Idle Claude uses 0.3–3.7 %, with short spikes to about 8 %. A CPU-based guess needs an average over several seconds.
 
+## 4a. Fans and ThermalForge (2026-10-07)
+
+- The machine has one fan, 1199–7199 rpm. Under Apple's control it stays at 0 rpm at light load, with CPU sensors at 50–60 °C. (Verified, `thermalforge status`.)
+- Apple publishes no fan curve. On Apple Silicon the SMC and `thermalmonitord` run a closed loop over many sensors, including estimated surface temperatures. (Unverified: no Apple documentation found.)
+- Macs Fan Control had been removed, but its root helper `com.crystalidea.macsfancontrol.smcwrite` was still running and held the fan in manual mode at about 4,500 rpm. We removed it. Backup: `backups/macsfancontrol-20261007/` (outside the repo). (Verified.)
+- ThermalForge from Homebrew needs full Xcode on macOS 14. The CLI builds with the Command Line Tools: `swift build -c release --product thermalforge` at commit `42bb534`. (Verified.)
+- `thermalforge install` (sudo) copies the binary to `/usr/local/bin` and installs the LaunchDaemon `com.thermalforge.daemon` with the installing user's UID. The socket `/var/run/thermalforge.sock` belongs to that user (mode 0600), so MTMR connects without sudo. (Verified.)
+- The daemon knows only fan speeds (`set`, `setfan`, `max`, `auto`) plus `status`, `state`, `heartbeat` and `version`. ThermalForge's profiles live in its menu bar app. (Source.)
+- Safety: full fan speed at 95 °C on the hottest CPU/GPU sensor; a supervised hold without a heartbeat for 15 s goes back to Apple's control. A CLI `thermalforge set` is unsupervised: the watchdog never reverts it. (Source.)
+- Writes are rate-limited (burst 20, 10 per second); `auto` is exempt. (Source.)
+- An SF Symbol drawn as a template image turns black when the App Controls switcher redraws it as a non-template image. Bake the colour into the icon. (Verified.)
+
+## 4b. kitty notifications from tmux (2026-10-07)
+
+- tmux 3.7c drops OSC 99 unless `allow-passthrough` is on. It is a pane option: `set -gw allow-passthrough on` works, `set -g` does not. Set in `~/.tmux.conf`. (Verified.)
+- Through tmux, OSC 99 must be wrapped: `ESC P tmux; <OSC with every ESC doubled> ESC \\`. (Verified: notification shown.)
+- In OSC 99, `d=0` means "more parts follow": kitty shows nothing until a part without `d=0` arrives, then joins all parts. (Verified.)
+- kitty stores its notifications with the body `" "` (one space). The mirror trims title and body, so they show as one-line entries. (Verified in the database.)
+- Notifications do not show while macOS holds them back during a meeting (screen sharing or Focus). (Verified 2026-10-07.)
+
 ## 5. Microsoft Teams (Verified unless marked)
 
 Approach: `/Users/maxday/Workspace/projects/theboxstuff/cliui/daemon/docs/teams-debug-port-approach.md`.
@@ -67,6 +87,8 @@ Approach: `/Users/maxday/Workspace/projects/theboxstuff/cliui/daemon/docs/teams-
 - The Teams third-party app API is not available here (likely disabled by IT). The debug port is a deliberate workaround: any local process can control Teams through it, and it may break IT policy.
 - `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9333 --remote-allow-origins=*"` opens a DevTools port on `127.0.0.1:9333` only. A LaunchAgent sets the variable at login. The plist must wrap `launchctl setenv` in `sh -c`. `launchctl getenv` from a shell reads empty and is not a valid check.
 - The in-call mic button is `[aria-label*="mic" i]`. "Unmute mic" = muted, "Mute mic" = unmuted. `.click()` toggles mute without stealing focus. English UI only.
+- `[aria-label*="mic" i]` alone also matches "Microsoft …" labels in the main window, outside calls. The script therefore takes only a match whose label starts with "Mute" or "Unmute". Before this fix the yellow unknown button showed with no call. (Verified 2026-10-07.)
+- The in-call camera button is labelled "Turn camera on" (camera off) or "Turn camera off" (camera on). `.click()` toggles it. A second button "Open video options" also matches "video". (Verified 2026-10-07.)
 - The target title of the call window is "<meeting title> | Microsoft Teams". `teams-mute meeting` prints the meeting title.
 - Closing the meeting window can leave the call running. The Leave button (`data-tid="hangup-main-btn"`) is a candidate signal for "call ended". (Unverified.)
 

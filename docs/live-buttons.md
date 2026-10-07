@@ -129,6 +129,8 @@ existing debug-port setup and English-label limits are in
 | exit 4, no call | `mic.fill` | yellow `#ffcc00` (not drawn) | false, collapses |
 | exit 3 / failure / unreadable | `mic.fill` | yellow `#ffcc00` | true |
 
+`teams-watch --device camera` drives `teams-camera` the same way from `teams-mute camera-status`: `on` = `video.fill` green, `off` = `video.slash.fill` red, no call = hidden, unreadable = yellow. Only the mic watcher posts "Meeting joined".
+
 Each update includes background null and the full icon/tint/visibility state.
 Socket absence/refusal retries quietly. Socket device/inode/creation-metadata
 changes trigger a full re-send even if status is unchanged; failures retry on the
@@ -196,4 +198,4 @@ A live button in the layout accepts two more fields:
   - The first item must be an absolute path to an executable file. Otherwise MTMR rejects the layout.
   - Output goes to `~/Library/Logs/touchbar-interface/watchers.log`. MTMR starts a new log file when the old file is larger than 1 MB.
 
-The Teams mic uses `teams/teams-watch` as its watcher, so no LaunchAgent is necessary for the mic. A tap runs `teams/teams-mic-tap`. That script toggles the mic and sets the new icon at once.
+The Teams mic uses `teams/teams-watch` as its watcher, so no LaunchAgent is necessary for the mic. A tap runs `teams/teams-mic-tap`. That script toggles the mic and sets the new icon at once. The Teams camera button (`teams-camera`) works the same way: watcher `teams/teams-watch --device camera`, tap `teams/teams-camera-tap`.

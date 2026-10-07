@@ -32,6 +32,25 @@
     ]
   },
   {
+    "type": "staticButton",
+    "title": "",
+    "align": "left",
+    "width": 75,
+    "id": "teams-camera",
+    "icon": "video.fill",
+    "tint": "#8e8e93",
+    "startHidden": true,
+    "watcher": ["${REPO}/teams/teams-watch", "--device", "camera"],
+    "actions": [
+      {
+        "trigger": "singleTap",
+        "action": "shellScript",
+        "executablePath": "${REPO}/teams/teams-camera-tap",
+        "shellArguments": []
+      }
+    ]
+  },
+  {
     "type": "notification",
     "align": "center",
     "maxChars": 36,
@@ -47,6 +66,6 @@
     "align": "right",
     "width": 340,
     "switcher": "right",
-    "panels": ["system", "lob", "ytmusic", "vscode", "stats"]
+    "panels": ["system", "lob", "ytmusic", "vscode", "stats", "fan"]
   }
 ]

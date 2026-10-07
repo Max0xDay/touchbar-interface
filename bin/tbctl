@@ -5,7 +5,8 @@ Protocol: AF_UNIX/SOCK_STREAM, one UTF-8 JSON object per newline, at most
 4096 bytes excluding newline. Commands: {"cmd":"notify","text":"...",
 "seconds":5,"title":"Heading"} (seconds and title optional; seconds positive,
 <=86400; a title makes two lines: heading, then text smaller), {"cmd":"clear"},
-{"cmd":"button",...}, {"cmd":"buttons"}, {"cmd":"app","id":"stats"}, {"cmd":"apps"}.
+{"cmd":"button",...}, {"cmd":"buttons"}, {"cmd":"app","id":"stats"}, {"cmd":"apps"},
+{"cmd":"fan","mode":"cool","percent":40} (mode and percent optional).
 Each command gets {"ok":true} or {"ok":false,"error":"..."} plus newline.
 Unknown fields are reserved for extensions; unknown commands are rejected.
 Default socket: ~/Library/Application Support/MTMR/mtmr.sock (mode 0600).
@@ -42,6 +43,9 @@ def parseArguments():
     commands.add_parser("buttons", parents=[sharedOptions])
     appParser = commands.add_parser("app", parents=[sharedOptions], help="select an App Controls panel (no ID: list them)")
     appParser.add_argument("id", nargs="?")
+    fanParser = commands.add_parser("fan", parents=[sharedOptions], help="show or set the fan mode (apple, quiet, cool, max, custom)")
+    fanParser.add_argument("mode", nargs="?", choices=["apple", "quiet", "cool", "max", "custom"])
+    fanParser.add_argument("--percent", type=float, help="Custom fan speed, 0-100")
     layoutParser = commands.add_parser("layout", parents=[sharedOptions], help="switch the live layout (no NAME: show the active one)")
     layoutParser.add_argument("name", nargs="?")
     buttonParser = commands.add_parser("button", parents=[sharedOptions])
@@ -58,6 +62,13 @@ def parseArguments():
     command = {"cmd": arguments.command}
     if arguments.command == "app":
         command = {"cmd": "app", "id": arguments.id} if arguments.id else {"cmd": "apps"}
+    if arguments.command == "fan":
+        if arguments.mode:
+            command["mode"] = arguments.mode
+        if arguments.percent is not None:
+            if not 0 <= arguments.percent <= 100:
+                parser.error("--percent must be 0-100")
+            command["percent"] = arguments.percent
     if arguments.command == "notify":
         command["text"] = arguments.text
         if arguments.title:
@@ -199,7 +210,7 @@ def main():
             connection.sendall(commandJson.encode("utf-8") + b"\n")
             reply = receiveReply(connection)
         if reply["ok"]:
-            if arguments.command in ("buttons", "app") and "id" not in json.loads(commandJson):
+            if arguments.command == "fan" or (arguments.command in ("buttons", "app") and "id" not in json.loads(commandJson)):
                 print(json.dumps(reply, ensure_ascii=False, separators=(",", ":")))
             return 0
         print(f"tbctl: {reply.get('error', 'server rejected command')}", file=sys.stderr)

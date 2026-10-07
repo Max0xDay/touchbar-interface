@@ -480,3 +480,27 @@ func lobIcon(size: CGFloat) -> NSImage {
         return true
     }
 }
+
+extension LobMonitor {
+    /// The session that most recently stopped working: the likely sender of a Claude notification (Claude says
+    /// only "Claude is waiting for your input", not which session).
+    func latestFinished() -> Session? {
+        return sessions.compactMap { session -> (Session, Date)? in
+            if case let .finished(at) = session.state { return (session, at) }
+            return nil
+        }.max { $0.1 < $1.1 }?.0
+    }
+
+    /// Name of the folder a process runs in (its working directory), e.g. "maxlaptopmtmr".
+    static func folder(of pid: Int32) -> String? {
+        var info = proc_vnodepathinfo()
+        let size = Int32(MemoryLayout<proc_vnodepathinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, size) == size else { return nil }
+        let path = withUnsafeBytes(of: info.pvi_cdir.vip_path) { buffer -> String in
+            guard let base = buffer.bindMemory(to: CChar.self).baseAddress else { return "" }
+            return String(cString: base)
+        }
+        let name = (path as NSString).lastPathComponent
+        return name.isEmpty || name == "/" ? nil : name
+    }
+}

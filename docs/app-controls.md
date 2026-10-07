@@ -18,6 +18,7 @@ The user picks the panel. The panel does not follow the frontmost app. The choic
 | VS Code | `vscode` | VS Code icon | A window toggle, a Run button (▶), and a command button (⌘). The window toggle shows the current window in the colour of that window: a colour stripe, the project name, the open file, and one coloured dot for each window. The current window has the large dot with a white ring. | Window toggle: goes to the next window. If VS Code is not in front, the first tap brings the current window to the front. Run: presses F5 (Run > Start Debugging). Command button: opens the Command Palette (⇧⌘P). |
 | Stats | `stats` | Stats app icon | Four cells: CPU (a ring with the total and a heat grid with one square for each core: efficiency cores on top, performance cores below), MEM (a ring with the %), TEMP (a thermometer and the CPU temperature), and NET (download and upload rate). | Opens the Stats app. |
 | lob | `lob` | Terminal tile (orange ">_" on black) | One pill for each lob session: a blue spinner while Claude works, a slow purple arc while pi-delegate runs, a pulsing green dot when Claude finishes and waits for a reply, a grey dot when idle. Always a two-row grid with the same cell size as 4 sessions: 3 sessions leave the top-left cell empty, 1 to 2 stack in the left column, 5 or more add columns. | Nothing |
+| Fan | `fan` | Fan tile (graphite tile, white fan) | A mode button (Apple, Quiet, Cool, Max, Custom); a graph of the last 2 minutes: the temperature line, the actual fan speed (blue area), the speed the mode asks for (dashed blue), and dashed lines at the mode's thresholds (fan on, full speed) and at the 95 °C floor (red); the temperature over the fan RPM. Temperature uses 30–100 °C and fan speed 0–100 % of the same height. In Custom, the graph is replaced by a slider. | Mode button: next mode. Custom: touch or drag the slider to set the fan speed. |
 
 If no panel is selected, App Controls shows the System panel.
 
@@ -51,6 +52,30 @@ To close the row without a change, tap the switcher button (✕) again. The row 
   - GPU: "Device Utilization %" of the graphics accelerator (IOAccelerator).
   - NET: the byte counters of all network interfaces except loopback, between two refreshes.
 
+## Fan
+
+The fan panel needs the ThermalForge daemon (`/usr/local/bin/thermalforge`, LaunchDaemon `com.thermalforge.daemon`). The daemon runs as root and writes the fan speed to the SMC. MTMR talks to it on `/var/run/thermalforge.sock` (4-byte length + JSON, only the installing user may connect). The curves are in `FanController`, not in ThermalForge.
+
+| Mode | Behaviour |
+|---|---|
+| Apple | Apple's own fan control. MTMR sends `auto` once and then does nothing. |
+| Quiet | Off below 70 °C, then up to 50 % at 90 °C (ease-in). Trades heat for noise. |
+| Cool (default) | Off below 45 °C, then up to 100 % at 75 °C (ease-in). |
+| Max | Full speed. |
+| Custom | A fixed speed set with the slider. At 85 °C the mode switches to Cool and a notification appears. |
+
+- The temperature is the hottest CPU or GPU sensor (`TC*`, `Tp*`, `TG*`, `Tg*`), the value that the daemon's safety floor uses, smoothed over a few samples.
+- Below the start temperature the fan goes back to Apple (`auto`). A running fan stops only 5 °C below the start temperature.
+- The controller runs every 2 s while the zone is loaded, also when another panel shows. It writes a speed only when the speed changes by 100 rpm or more, and it slows down by at most 300 rpm per step. Otherwise it sends a heartbeat.
+- Safety: the daemon sets the fans to full speed at 95 °C in every mode. If MTMR stops, the daemon gives the fans back to Apple after 15 s. `thermalforge auto` does the same at once.
+- The mode and the Custom speed persist (UserDefaults `FanMode`, `FanCustomPercent`).
+
+```bash
+bin/tbctl fan                 # mode, temperature, rpm
+bin/tbctl fan quiet           # set the mode
+bin/tbctl fan custom --percent 30
+```
+
 ## lob sessions
 
 - The panel finds lob sessions from the running Claude processes. lob starts each one as `claude … Active project: <name>. …`. The pill shows the tmux session name without `-01` (`-02` shows as `<name> 2`).
@@ -70,7 +95,7 @@ To close the row without a change, tap the switcher button (✕) again. The row 
   "align": "right",
   "width": 340,
   "switcher": "right",
-  "panels": ["system", "lob", "ytmusic", "vscode", "stats"]
+  "panels": ["system", "lob", "ytmusic", "vscode", "stats", "fan"]
 }
 ```
 
@@ -129,5 +154,6 @@ Follow these rules for a panel:
 | `mtmr/overlay/AppControlsCodePanel.swift` | VS Code panel |
 | `mtmr/overlay/AppControlsStatsPanel.swift` | Stats panel, `SystemMetrics`, temperature sensors |
 | `mtmr/overlay/AppControlsLobPanel.swift` | lob panel, `LobMonitor`, session chips, lob icon |
+| `mtmr/overlay/AppControlsFanPanel.swift` | Fan panel, `FanController` (curves), `ThermalForgeClient` (daemon socket) |
 | `mtmr/overlay/NotificationMirror.swift` | Mirror of macOS notifications into the notification area |
 | `mtmr/patches/0005-app-controls-watchers-welcome.patch` | `appControls` item type, watchers, welcome notification |

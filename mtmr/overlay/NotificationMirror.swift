@@ -63,10 +63,18 @@ final class NotificationMirror {
         guard !options.ignoreApps.contains(app) else { return }
         guard !record.title.isEmpty || !record.body.isEmpty else { return }
         let seconds = options.stickyApps.contains(app) ? options.stickySeconds : nil
+        var title = record.title
+        var body = record.body
+        // Claude's notifications through kitty name no session: credit the lob session that last stopped working,
+        // with its folder as the heading.
+        if options.lobApps.contains(app), let session = LobMonitor.shared.latestFinished() {
+            title = LobMonitor.folder(of: session.pid) ?? session.name
+            if body.range(of: "waiting for your input", options: .caseInsensitive) != nil { body = "lob is awaiting response" }
+        }
         // Title and body: two lines (heading, then the body smaller). Only one of them: a single line.
-        let twoLines = !record.title.isEmpty && !record.body.isEmpty
-        _ = NotificationStore.shared.notify(text: twoLines ? record.body : record.title + record.body, seconds: seconds,
-                                            icon: icon(for: app, options: options), title: twoLines ? record.title : nil)
+        let twoLines = !title.isEmpty && !body.isEmpty
+        _ = NotificationStore.shared.notify(text: twoLines ? body : title + body, seconds: seconds,
+                                            icon: icon(for: app, options: options), title: twoLines ? title : nil)
     }
 
     private func icon(for app: String, options: NotificationMirrorOptions) -> NSImage? {
@@ -113,8 +121,10 @@ final class NotificationMirror {
     private static func content(_ data: Data) -> (title: String, body: String) {
         guard let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any],
               let request = plist["req"] as? [String: Any] else { return ("", "") }
-        let title = [request["titl"] as? String, request["subt"] as? String].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
-        return (title, request["body"] as? String ?? "")
+        // Trimmed: kitty (OSC 99) sends a body of one space, which made a two-line entry with an empty text line.
+        let trim = { (text: String?) in (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+        let title = [trim(request["titl"] as? String), trim(request["subt"] as? String)].filter { !$0.isEmpty }.joined(separator: " · ")
+        return (title, trim(request["body"] as? String))
     }
 
     private func openDatabase() -> OpaquePointer? {

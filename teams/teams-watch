@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Poll teams-mute status and update teams-mic through MTMR's local socket.
 On joining a call it also posts a two-line notification: "Meeting joined" over the meeting title.
+--device camera drives teams-camera from `teams-mute camera-status` instead (no notification).
 
 No installation or Teams launch. --status-command PATH overrides teams-mute
 for isolated tests (the executable receives one argument: status).
@@ -24,6 +25,7 @@ def parseArguments():
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--interval", type=float, default=1)
+    parser.add_argument("--device", choices=sorted(DEVICES), default="mic")
     parser.add_argument("--status-command", default=str(Path(__file__).resolve().with_name("teams-mute")))
     parser.add_argument("--socket", default=str(Path.home() / "Library/Application Support/MTMR/mtmr.sock"))
     arguments = parser.parse_args()
@@ -34,30 +36,38 @@ def parseArguments():
     return arguments
 
 
-def mappedState(exitCode, status):
-    command = {"cmd": "button", "id": "teams-mic", "icon": "mic.fill", "tint": "#ffcc00", "background": None, "visible": True}
+# Per device: button id, status argument, and state -> (icon, tint). Green = live, red = off; yellow = unreadable.
+DEVICES = {
+    "mic": {"id": "teams-mic", "status": "status", "icon": "mic.fill",
+            "states": {"unmuted": ("mic.fill", "#34c759"), "muted": ("mic.slash.fill", "#ff3b30")}},
+    "camera": {"id": "teams-camera", "status": "camera-status", "icon": "video.fill",
+               "states": {"on": ("video.fill", "#34c759"), "off": ("video.slash.fill", "#ff3b30")}},
+}
+
+
+def mappedState(exitCode, status, device="mic"):
+    settings = DEVICES[device]
+    command = {"cmd": "button", "id": settings["id"], "icon": settings["icon"], "tint": "#ffcc00", "background": None, "visible": True}
     if exitCode == 4:
         command["visible"] = False
-    elif exitCode == 0:
-        if status == "unmuted":
-            command["tint"] = "#34c759"
-        elif status == "muted":
-            command.update(icon="mic.slash.fill", tint="#ff3b30")
+    elif exitCode == 0 and status in settings["states"]:
+        icon, tint = settings["states"][status]
+        command.update(icon=icon, tint=tint)
     return command
 
 
-def readState(statusCommand):
+def readState(statusCommand, device="mic"):
     try:
-        execution = subprocess.run([statusCommand, "status"], capture_output=True, text=True, timeout=5)
+        execution = subprocess.run([statusCommand, DEVICES[device]["status"]], capture_output=True, text=True, timeout=5)
         if execution.returncode not in (0, 3, 4):
             print(f"teams-watch: status failed (exit {execution.returncode}): {execution.stderr.strip()[:200]}", file=sys.stderr)
         if execution.returncode == 0:
-            if execution.stdout.strip() not in ("muted", "unmuted"):
-                print("teams-watch: unreadable mic status", file=sys.stderr)
-        return mappedState(execution.returncode, execution.stdout.strip())
+            if execution.stdout.strip() not in DEVICES[device]["states"]:
+                print(f"teams-watch: unreadable {device} status", file=sys.stderr)
+        return mappedState(execution.returncode, execution.stdout.strip(), device)
     except (OSError, subprocess.TimeoutExpired, UnicodeError) as error:
         print(f"teams-watch: status failed: {error}", file=sys.stderr)
-        return mappedState(1, "")
+        return mappedState(1, "", device)
 
 
 def socketIdentity(socketPath):
@@ -120,13 +130,11 @@ def main():
     appliedIdentity = None
     inCall = None
     while not stopped.is_set():
-        command = readState(arguments.status_command)
+        command = readState(arguments.status_command, arguments.device)
         # In a call only when the mic state was read (green or red); yellow "unreadable" is not a join.
-        # In a call only when the mic state was read (green or red); yellow "unreadable" is not a join.
-        # In a call only when the mic state was read (green or red); yellow "unreadable" is not a join.
-        nowInCall = command["visible"] and command["tint"] in ("#34c759", "#ff3b30") and command["tint"] in ("#34c759", "#ff3b30") and command["tint"] in ("#34c759", "#ff3b30")
-        # Announce a join only on a change seen by this watcher (not when it starts mid-call).
-        if inCall is False and nowInCall and not arguments.dry_run:
+        nowInCall = command["visible"] and command["tint"] in ("#34c759", "#ff3b30")
+        # Announce a join only on a change seen by this watcher (not when it starts mid-call); the mic watcher only.
+        if inCall is False and nowInCall and not arguments.dry_run and arguments.device == "mic":
             applyState(arguments.socket, meetingNotification(arguments.status_command))
         inCall = nowInCall
         identity = socketIdentity(arguments.socket) if not arguments.dry_run else None

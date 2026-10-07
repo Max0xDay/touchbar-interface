@@ -8,19 +8,21 @@ A personal Touch Bar product for one MacBook Pro (13", M1, macOS 14.7.6). The pr
 [✕][gap][ left buttons ] |  [ notification area, centred ]  | [ App Controls panel ......... ][switcher]
 ```
 
-- **Left buttons:** live buttons that scripts control through the socket. The first is the Teams mic button: green when unmuted, red when muted, hidden outside a call.
+- **Left buttons:** live buttons that scripts control through the socket. The first two are the Teams mic and camera buttons: green when live, red when muted or off, hidden outside a call. A tap toggles.
 - **Notification area:** shows `tbctl notify` messages and a copy of every macOS notification, with the icon of the sender app.
-- **App Controls:** one panel at a time, selected with the switcher at the right edge. The panels are System, lob, YouTube Music, VS Code and Stats.
+- **App Controls:** one panel at a time, selected with the switcher at the right edge. The panels are System, lob, YouTube Music, VS Code, Stats and Fan.
+- **Fan control:** the Fan panel runs our own fan curves (Apple, Quiet, Cool, Max, Custom) through the [ThermalForge](https://github.com/ProducerGuy/ThermalForge) root daemon.
 
 ## Status
 
 | Part | State |
 |---|---|
 | Native arm64 build (no Xcode, no Rosetta) | Working. |
-| Socket and `tbctl` (notify, clear, button, buttons, app, apps, layout) | Working. |
+| Socket and `tbctl` (notify, clear, button, buttons, app, apps, fan, layout) | Working. |
 | Notification area (queue, swipe, two-line entries, app icons, macOS notification mirror) | Working. |
-| Live buttons and watchers (Teams mic) | Working. |
+| Live buttons and watchers (Teams mic, Teams camera) | Working. |
 | App Controls (System, lob, YouTube Music, VS Code, Stats) | Working. |
+| Fan panel and fan control (ThermalForge daemon) | Working; curves to be tuned. |
 
 ## Repository layout
 

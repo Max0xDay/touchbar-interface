@@ -20,6 +20,7 @@ enum AppControlsRegistry {
         AppControlsCodePanel.self,
         AppControlsStatsPanel.self,
         AppControlsLobPanel.self,
+        AppControlsFanPanel.self,
     ]
     static let fallbackId = AppControlsSystemPanel.id
 
@@ -148,6 +149,8 @@ final class AppControlsView: NSView {
         showSelectedPanel(animated: false)
         // lob states depend on transitions (working → finished), so watch from load, not only while lob shows.
         if options.panels.contains(AppControlsLobPanel.id) { LobMonitor.shared.start() }
+        // The fan curve must run while other panels show (and the hold needs its heartbeat).
+        if options.panels.contains(AppControlsFanPanel.id) { FanController.shared.start() }
     }
 
     required init?(coder: NSCoder) {

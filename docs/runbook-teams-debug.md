@@ -49,7 +49,9 @@ teams/teams-mute status      # prints muted | unmuted | no-call
 teams/teams-mute toggle      # prints the new state
 teams/teams-mute mute        # no-op if already muted
 teams/teams-mute unmute
-teams/teams-mute discover    # prints candidate mic/mute buttons (tag, data-tid, aria-label only); for fixing selectors
+teams/teams-mute camera-status   # prints on | off | no-call
+teams/teams-mute camera-toggle   # also camera-on, camera-off
+teams/teams-mute discover    # prints candidate mic/camera buttons (tag, data-tid, aria-label only); for fixing selectors
 ```
 
 Exit codes: `0` ok, `1` error, `3` debug port not reachable, `4` not in a call. `TEAMS_DEBUG_PORT` overrides the port (default 9333). Each call connects, does one thing and exits (about 3 seconds at most); nothing runs in the background.

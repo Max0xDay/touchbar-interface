@@ -48,7 +48,7 @@ The notification item accepts a `mirror` object. With `mirror`, MTMR shows every
 ```
 
 - `stickyApps`: notifications from these apps stay `stickySeconds` (default 600 = 10 minutes). Other notifications stay `defaultSeconds`.
-- `lobApps`: notifications from these apps show the lob icon. lob sessions send their notifications through kitty.
+- `lobApps`: notifications from these apps show the lob icon. lob sessions send their notifications through kitty. Claude's notification does not say which session sent it, so the mirror credits the lob session that most recently stopped working (the green pill): the heading is that session's folder (the working directory of its Claude process), and "Claude is waiting for your input" becomes "lob is awaiting response". With no finished session the notification stays as Claude sent it. Two sessions that finish close together can be mixed up.
 - `ignoreApps`: MTMR does not show notifications from these apps.
 - If a notification has a title and a body, the bar shows two lines: the title as a heading, and the body smaller below. If it has only one of them, the bar shows one line.
 - Source: the Notification Center database (`$(getconf DARWIN_USER_DIR)com.apple.notificationcenter/db2/db`). MTMR reads the database once a second, read-only. On macOS 14.7.6, the read needs no Full Disk Access.
