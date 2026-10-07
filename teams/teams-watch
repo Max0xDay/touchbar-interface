@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Poll teams-mute status and update teams-mic through MTMR's local socket.
+On joining a call it also posts a two-line notification: "Meeting joined" over the meeting title.
 
 No installation or Teams launch. --status-command PATH overrides teams-mute
 for isolated tests (the executable receives one argument: status).
@@ -98,6 +99,18 @@ def applyState(socketPath, command):
         return False
 
 
+def meetingNotification(statusCommand):
+    """The "Meeting joined" notification; the title comes from `teams-mute meeting` (the call window title)."""
+    title = ""
+    try:
+        execution = subprocess.run([statusCommand, "meeting"], capture_output=True, text=True, timeout=5)
+        if execution.returncode == 0:
+            title = execution.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired, UnicodeError) as error:
+        print(f"teams-watch: meeting title failed: {error}", file=sys.stderr)
+    return {"cmd": "notify", "title": "Meeting joined", "text": title or "Microsoft Teams", "seconds": 15, "app": "com.microsoft.teams2"}
+
+
 def main():
     arguments = parseArguments()
     stopped = threading.Event()
@@ -105,8 +118,15 @@ def main():
     signal.signal(signal.SIGTERM, lambda *_: stopped.set())
     appliedState = None
     appliedIdentity = None
+    inCall = None
     while not stopped.is_set():
         command = readState(arguments.status_command)
+        # In a call only when the mic state was read (green or red); yellow "unreadable" is not a join.
+        nowInCall = command["visible"] and command["tint"] in ("#34c759", "#ff3b30")
+        # Announce a join only on a change seen by this watcher (not when it starts mid-call).
+        if inCall is False and nowInCall and not arguments.dry_run:
+            applyState(arguments.socket, meetingNotification(arguments.status_command))
+        inCall = nowInCall
         identity = socketIdentity(arguments.socket) if not arguments.dry_run else None
         changed = command != appliedState
         restarted = identity != appliedIdentity

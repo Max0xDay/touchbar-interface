@@ -1,7 +1,7 @@
 import Cocoa
 
-/// lob: one chip per lob session (tmux session "<project>-NN"), animated by state:
-/// working = spinning arc, finished = pulsing green (awaiting your reply), idle = still grey dot.
+/// lob: one pill per lob session, animated by state: working = blue spinning arc, delegate = purple slow orbit
+/// (a pi-delegate run is in progress), finished = pulsing green (awaiting your reply), idle = still grey dot. Up to 3 sessions: one row; 4–6: two rows of three; more scroll sideways.
 /// Display only: taps do nothing (replies go through Claude remote control).
 final class AppControlsLobPanel: NSView, AppControlsPanel {
     static let id = "lob"
@@ -9,15 +9,16 @@ final class AppControlsLobPanel: NSView, AppControlsPanel {
     static func icon() -> NSImage { return lobIcon(size: TouchBarIcon.appBox) }
     let refreshInterval: TimeInterval = 1
 
+    private static let gap: CGFloat = 4
     private let scroll = NSScrollView()
-    private let stack = NSView()
+    private let container = NSView()
     private let empty = AppControlsStyle.label(size: 12, color: AppControlsStyle.secondaryText)
-    private var chips: [String: LobSessionChip] = [:]
-    private var order: [String] = []
+    private var pills: [Int32: LobSessionPill] = [:]
+    private var order: [Int32] = []
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        scroll.documentView = stack
+        scroll.documentView = container
         scroll.drawsBackground = false
         scroll.hasHorizontalScroller = false
         empty.stringValue = "No lob sessions"
@@ -34,68 +35,95 @@ final class AppControlsLobPanel: NSView, AppControlsPanel {
         super.layout()
         scroll.frame = bounds
         empty.frame = NSRect(x: 4, y: 7, width: bounds.width - 8, height: 16)
-        layoutChips()
+        layoutPills()
     }
 
-    /// Chips share the width equally (at least 68 pt each); more sessions than fit scroll sideways.
-    private func layoutChips() {
-        let count = CGFloat(order.count)
+    private func layoutPills() {
+        let count = order.count
         guard count > 0 else { return }
-        let width = max(68, floor((bounds.width - AppControlsStyle.gap * (count - 1)) / count))
-        for name in order { chips[name]?.frame.size = NSSize(width: width, height: bounds.height) }
-        stack.frame = NSRect(x: 0, y: 0, width: width * count + AppControlsStyle.gap * (count - 1), height: bounds.height)
-        for (index, name) in order.enumerated() {
-            chips[name]?.frame.origin = NSPoint(x: CGFloat(index) * (width + AppControlsStyle.gap), y: 0)
+        let rows = count <= 3 ? 1 : 2
+        let columns = Int(ceil(Double(count) / Double(rows)))
+        let height = rows == 1 ? bounds.height : floor((bounds.height - Self.gap / 2) / 2)
+        let width = max(88, floor((bounds.width - Self.gap * CGFloat(columns - 1)) / CGFloat(columns)))
+        for (index, pid) in order.enumerated() {
+            let row = index / columns
+            let column = index % columns
+            // Row 0 is the top row (AppKit's y grows upwards).
+            let y = rows == 1 ? 0 : (row == 0 ? bounds.height - height : 0)
+            pills[pid]?.frame = NSRect(x: CGFloat(column) * (width + Self.gap), y: y, width: width, height: height)
+            pills[pid]?.compact = rows > 1
         }
+        container.frame = NSRect(x: 0, y: 0, width: CGFloat(columns) * width + CGFloat(columns - 1) * Self.gap, height: bounds.height)
     }
 
     func refresh() {
         let sessions = LobMonitor.shared.sessions
         empty.isHidden = !sessions.isEmpty
-        let names = sessions.map { $0.name }
-        if names != order {
-            for (name, chip) in chips where !names.contains(name) {
-                chip.removeFromSuperview()
-                chips.removeValue(forKey: name)
+        let pids = sessions.map { $0.pid }
+        if pids != order {
+            for (pid, pill) in pills where !pids.contains(pid) {
+                pill.removeFromSuperview()
+                pills.removeValue(forKey: pid)
             }
-            for name in names where chips[name] == nil {
-                let chip = LobSessionChip()
-                chips[name] = chip
-                stack.addSubview(chip)
+            for pid in pids where pills[pid] == nil {
+                let pill = LobSessionPill()
+                pills[pid] = pill
+                container.addSubview(pill)
             }
-            order = names
-            layoutChips()
+            order = pids
+            layoutPills()
         }
-        for session in sessions { chips[session.name]?.show(session) }
+        for session in sessions { pills[session.pid]?.show(session) }
     }
 }
 
-/// Watches lob's tmux sessions. Working = Claude's spinner line above the prompt: glyph, verb and an ellipsis,
-/// e.g. "✢ Tinkering… (thought for 2s)"; when done it reads "✻ Baked for 3s · done 3:30 PM" (no ellipsis).
-/// Verified 2026-10-06. The status line's "esc to interrupt" is not used: narrow panes truncate it.
-/// Runs from the moment the App Controls zone loads, so finishes are caught even while another panel shows.
+/// Finds lob sessions from the running Claude processes ("claude … Active project: <name>. …", as lob.sh starts
+/// them), so sessions on an older tmux server whose socket was replaced still appear (Verified 2026-10-06: two of
+/// six were unreachable through tmux).
+/// Working: for sessions tmux can reach, Claude's spinner line above the prompt (glyph, verb, ellipsis, e.g.
+/// "✢ Tinkering… (thought for 2s)"; done reads "✻ Baked for 3s · done 3:30 PM"). The status line's "esc to
+/// interrupt" is not used: narrow panes truncate it. For unreachable sessions: CPU use of at least 8 % over the
+/// last poll (working measured ~12 %, idle 0.3–3.7 %).
+/// Delegate: a process running pi-delegate.py anywhere below the session's Claude process (it overrides working).
 final class LobMonitor {
     enum State: Equatable {
         case working(since: Date)
+        case delegating(since: Date)
         case finished(at: Date)
         case idle
     }
 
     struct Session: Equatable {
+        let pid: Int32
         let name: String
-        let project: String
         let state: State
+    }
+
+    private struct Process {
+        let pid: Int32
+        let project: String
+        let cpuSeconds: Double
+        let delegating: Bool
+    }
+
+    private struct Reading {
+        let pid: Int32
+        let name: String
+        let working: Bool
+        let delegating: Bool
     }
 
     static let shared = LobMonitor()
     /// A finished session without a reply turns idle after this long.
     private static let finishedFor: TimeInterval = 30 * 60
-    private static let sessionPattern = try! NSRegularExpression(pattern: "^(.+)-([0-9]{2})$")
+    private static let busyCPU = 0.08
+    private static let projectPattern = try! NSRegularExpression(pattern: "Active project: ([^.]+)\\.")
     private static let spinnerPattern = try! NSRegularExpression(pattern: "^\\S\\s+\\p{Lu}\\p{Ll}+…")
 
     private(set) var sessions: [Session] = []
     private var timer: Timer?
     private var polling = false
+    private var previousCPU: [Int32: (seconds: Double, at: Double)] = [:]
     private let queue = DispatchQueue(label: "MTMRLobMonitor")
     private lazy var tmux: String? = ["/opt/homebrew/bin/tmux", "/usr/local/bin/tmux", "/usr/bin/tmux"].first { FileManager.default.isExecutableFile(atPath: $0) }
 
@@ -109,34 +137,85 @@ final class LobMonitor {
     }
 
     private func poll() {
-        guard !polling, let tmux = tmux else { return }
+        guard !polling else { return }
         polling = true
+        let tmux = self.tmux
         queue.async { [weak self] in
-            let working = Self.readSessions(tmux: tmux)
+            guard let self = self else { return }
+            let readings = self.read(tmux: tmux)
             DispatchQueue.main.async {
-                self?.polling = false
-                self?.update(working)
+                self.polling = false
+                self.update(readings)
             }
         }
     }
 
-    /// Session name → is Claude working, for every tmux session named like lob's "<project>-NN".
-    private static func readSessions(tmux: String) -> [(String, Bool)] {
-        guard let list = run(tmux, ["list-panes", "-a", "-F", "#{session_name}\t#{pane_id}"]) else { return [] }
-        var firstPane: [String: String] = [:]
-        var names: [String] = []
+    /// One reading per lob Claude process. Runs on the monitor queue.
+    private func read(tmux: String?) -> [Reading] {
+        let processes = Self.claudeProcesses()
+        var panes: [Int32: (session: String, pane: String)] = [:]
+        if let tmux = tmux, let list = Self.run(tmux, ["list-panes", "-a", "-F", "#{pane_pid}\t#{session_name}\t#{pane_id}"]) {
+            for line in list.split(separator: "\n") {
+                let fields = line.split(separator: "\t").map(String.init)
+                if fields.count == 3, let pid = Int32(fields[0]) { panes[pid] = (fields[1], fields[2]) }
+            }
+        }
+        let now = ProcessInfo.processInfo.systemUptime
+        var readings: [Reading] = []
+        for process in processes {
+            let previous = previousCPU[process.pid]
+            previousCPU[process.pid] = (process.cpuSeconds, now)
+            if let tmux = tmux, let pane = panes[process.pid] {
+                let screen = Self.run(tmux, ["capture-pane", "-p", "-t", pane.pane]) ?? ""
+                readings.append(Reading(pid: process.pid, name: Self.displayName(session: pane.session), working: Self.isWorking(screen), delegating: process.delegating))
+            } else {
+                var busy = false
+                if let previous = previous, now > previous.at {
+                    busy = (process.cpuSeconds - previous.seconds) / (now - previous.at) >= Self.busyCPU
+                }
+                readings.append(Reading(pid: process.pid, name: process.project, working: busy, delegating: process.delegating))
+            }
+        }
+        let alive = Set(processes.map { $0.pid })
+        previousCPU = previousCPU.filter { alive.contains($0.key) }
+        return readings.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    private static func claudeProcesses() -> [Process] {
+        guard let list = run("/bin/ps", ["-axo", "pid=,ppid=,time=,command="]) else { return [] }
+        var rows: [(pid: Int32, parent: Int32, time: String, command: String)] = []
         for line in list.split(separator: "\n") {
-            let fields = line.split(separator: "\t").map(String.init)
-            guard fields.count == 2, firstPane[fields[0]] == nil else { continue }
-            let range = NSRange(fields[0].startIndex..., in: fields[0])
-            guard sessionPattern.firstMatch(in: fields[0], range: range) != nil else { continue }
-            firstPane[fields[0]] = fields[1]
-            names.append(fields[0])
+            let fields = line.trimmingCharacters(in: .whitespaces).split(separator: " ", maxSplits: 3, omittingEmptySubsequences: true)
+            guard fields.count == 4, let pid = Int32(fields[0]), let parent = Int32(fields[1]) else { continue }
+            rows.append((pid, parent, String(fields[2]), String(fields[3])))
         }
-        return names.sorted().map { name in
-            let screen = run(tmux, ["capture-pane", "-p", "-t", firstPane[name]!]) ?? ""
-            return (name, isWorking(screen))
+        var children: [Int32: [Int32]] = [:]
+        for row in rows { children[row.parent, default: []].append(row.pid) }
+        let delegates = Set(rows.filter { $0.command.contains("pi-delegate.py --tier") }.map { $0.pid })
+        return rows.compactMap { row in
+            // lob.sh runs "claude --dangerously-skip-permissions <init prompt>"; tmux client lines start with "tmux".
+            guard row.command.hasPrefix("claude "), let match = projectPattern.firstMatch(in: row.command, range: NSRange(row.command.startIndex..., in: row.command)),
+                  let range = Range(match.range(at: 1), in: row.command) else { return nil }
+            return Process(pid: row.pid, project: String(row.command[range]), cpuSeconds: cpuSeconds(row.time),
+                           delegating: hasDescendant(of: row.pid, in: delegates, children: children))
         }
+    }
+
+    /// Whether any process below `pid` (shell, python, ...) is in `targets`.
+    private static func hasDescendant(of pid: Int32, in targets: Set<Int32>, children: [Int32: [Int32]]) -> Bool {
+        var pending = children[pid] ?? []
+        var visited = Set<Int32>()
+        while let next = pending.popLast() {
+            guard visited.insert(next).inserted else { continue }
+            if targets.contains(next) { return true }
+            pending += children[next] ?? []
+        }
+        return false
+    }
+
+    /// ps "time": "M:SS.ss" or "H:MM:SS.ss" → seconds.
+    private static func cpuSeconds(_ text: String) -> Double {
+        return text.split(separator: ":").reduce(0) { $0 * 60 + (Double($1) ?? 0) }
     }
 
     /// Looks only at the lines just above the input prompt ("❯"), where Claude draws its spinner.
@@ -149,7 +228,7 @@ final class LobMonitor {
     }
 
     private static func run(_ executable: String, _ arguments: [String]) -> String? {
-        let process = Process()
+        let process = Foundation.Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
         let output = Pipe()
@@ -166,39 +245,47 @@ final class LobMonitor {
         return String(data: data, encoding: .utf8)
     }
 
-    private func update(_ readings: [(String, Bool)]) {
+    private func update(_ readings: [Reading]) {
         let now = Date()
-        let previous = Dictionary(uniqueKeysWithValues: sessions.map { ($0.name, $0.state) })
-        sessions = readings.map { name, working in
+        let previous = Dictionary(uniqueKeysWithValues: sessions.map { ($0.pid, $0.state) })
+        sessions = readings.map { reading in
             let state: State
-            switch (previous[name], working) {
-            case (.working(let since)?, true): state = .working(since: since)
-            case (_, true): state = .working(since: now)
-            case (.working?, false): state = .finished(at: now)
-            case (.finished(let at)?, false): state = now.timeIntervalSince(at) > Self.finishedFor ? .idle : .finished(at: at)
-            default: state = .idle
+            let before = previous[reading.pid]
+            if reading.delegating {
+                if case let .delegating(since)? = before { state = .delegating(since: since) } else { state = .delegating(since: now) }
+            } else if reading.working {
+                if case let .working(since)? = before { state = .working(since: since) } else { state = .working(since: now) }
+            } else {
+                switch before {
+                case .working?, .delegating?: state = .finished(at: now)
+                case let .finished(at)?: state = now.timeIntervalSince(at) > Self.finishedFor ? .idle : .finished(at: at)
+                default: state = .idle
+                }
             }
-            return Session(name: name, project: Self.project(name), state: state)
+            return Session(pid: reading.pid, name: reading.name, state: state)
         }
     }
 
     /// "maxlaptopmtmr-01" → "maxlaptopmtmr"; "maxlaptopmtmr-02" → "maxlaptopmtmr 2".
-    private static func project(_ session: String) -> String {
-        guard let dash = session.lastIndex(of: "-") else { return session }
+    private static func displayName(session: String) -> String {
+        guard let dash = session.lastIndex(of: "-"), let number = Int(session[session.index(after: dash)...]) else { return session }
         let base = String(session[..<dash])
-        let number = Int(session[session.index(after: dash)...]) ?? 1
         return number == 1 ? base : "\(base) \(number)"
     }
 }
 
-/// One session: animated indicator, project name, state line.
-final class LobSessionChip: NSView {
+/// One session pill: animated indicator and project name; in the one-row layout also the elapsed time.
+final class LobSessionPill: NSView {
+    var compact = false {
+        didSet { if compact != oldValue { needsLayout = true } }
+    }
+
     private let background = CALayer()
     private let indicator = CALayer()
     private let spinner = CAShapeLayer()
     private let dot = CAShapeLayer()
     private let ring = CAShapeLayer()
-    private let title = AppControlsStyle.label(size: 10, weight: .semibold)
+    private let title = AppControlsStyle.label(size: 11, weight: .semibold)
     private let detail = AppControlsStyle.label(size: 9, color: AppControlsStyle.secondaryText, monospacedDigits: true)
     private var shownKind = ""
 
@@ -206,18 +293,17 @@ final class LobSessionChip: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: 96, height: 30))
         wantsLayer = true
         layer?.addSublayer(background)
-        background.cornerRadius = 6
         layer?.addSublayer(indicator)
         for shape in [ring, dot, spinner] { indicator.addSublayer(shape) }
         spinner.fillColor = nil
-        spinner.lineWidth = 2
         spinner.lineCap = .round
         spinner.strokeColor = NSColor.systemBlue.cgColor
         ring.fillColor = nil
-        ring.lineWidth = 1.5
+        ring.lineWidth = 1.2
         ring.strokeColor = AppControlsStyle.good.cgColor
-        // Middle truncation keeps both ends of long project names ("andoi…find").
+        // Middle truncation keeps both ends of a long project name if it ever overflows.
         title.lineBreakMode = .byTruncatingMiddle
+        detail.alignment = .right
         addSubview(title)
         addSubview(detail)
     }
@@ -228,46 +314,47 @@ final class LobSessionChip: NSView {
 
     override func layout() {
         super.layout()
+        let size: CGFloat = compact ? 8 : 11
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         background.frame = bounds
-        let size: CGFloat = 12
-        indicator.frame = NSRect(x: 6, y: bounds.midY - size / 2, width: size, height: size)
+        background.cornerRadius = bounds.height / 2
+        indicator.frame = NSRect(x: compact ? 5 : 8, y: bounds.midY - size / 2, width: size, height: size)
         let box = indicator.bounds
-        for shape in [spinner, dot, ring] {
-            shape.frame = box
-        }
+        for shape in [spinner, dot, ring] { shape.frame = box }
+        spinner.lineWidth = compact ? 1.5 : 2
         spinner.path = CGPath(ellipseIn: box.insetBy(dx: 1, dy: 1), transform: nil)
-        spinner.strokeEnd = 0.72
-        ring.path = CGPath(ellipseIn: box.insetBy(dx: 1, dy: 1), transform: nil)
+        ring.path = CGPath(ellipseIn: box.insetBy(dx: 0.5, dy: 0.5), transform: nil)
         CATransaction.commit()
-        // Dot shapes depend on the indicator size, which is only known now.
         if !shownKind.isEmpty { applyShapes(shownKind) }
-        let textX = indicator.frame.maxX + 5
-        title.frame = NSRect(x: textX, y: 14, width: max(0, bounds.width - textX - 4), height: 15)
-        detail.frame = NSRect(x: textX, y: 2, width: max(0, bounds.width - textX - 4), height: 12)
+        title.font = NSFont.systemFont(ofSize: compact ? 9 : 11, weight: .semibold)
+        let textX = indicator.frame.maxX + (compact ? 4 : 6)
+        let detailWidth: CGFloat = compact ? 0 : 40
+        detail.isHidden = compact
+        let titleHeight: CGFloat = compact ? 12 : 15
+        title.frame = NSRect(x: textX, y: bounds.midY - titleHeight / 2, width: max(0, bounds.width - textX - detailWidth - 6), height: titleHeight)
+        detail.frame = NSRect(x: bounds.width - detailWidth - 8, y: bounds.midY - 6, width: detailWidth, height: 12)
     }
 
     func show(_ session: LobMonitor.Session) {
-        title.stringValue = session.project
+        title.stringValue = session.name
         let kind: String
         switch session.state {
         case let .working(since):
             kind = "working"
             detail.stringValue = Self.elapsed(since)
+        case let .delegating(since):
+            kind = "delegate"
+            detail.stringValue = "pi " + Self.elapsed(since)
         case let .finished(at):
             kind = "finished"
             detail.stringValue = "done " + Self.elapsed(at)
         case .idle:
             kind = "idle"
-            detail.stringValue = "idle"
+            detail.stringValue = ""
         }
         guard kind != shownKind else { return }
         shownKind = kind
-        animate(kind)
-    }
-
-    private func animate(_ kind: String) {
         for shape in [spinner, dot, ring, background] { shape.removeAllAnimations() }
         applyShapes(kind)
         startAnimations(kind)
@@ -276,26 +363,29 @@ final class LobSessionChip: NSView {
     private func applyShapes(_ kind: String) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let small = indicator.bounds.insetBy(dx: 4, dy: 4)
-        let full = indicator.bounds.insetBy(dx: 2, dy: 2)
+        let box = indicator.bounds
         switch kind {
-        case "working":
+        case "working", "delegate":
+            let colour = kind == "working" ? NSColor.systemBlue : NSColor.systemPurple
             spinner.isHidden = false
             ring.isHidden = true
             dot.isHidden = true
-            background.backgroundColor = NSColor.systemBlue.withAlphaComponent(0.18).cgColor
+            spinner.strokeColor = colour.cgColor
+            // Working: a long arc; delegate: a short one, so the two read differently even without colour.
+            spinner.strokeEnd = kind == "working" ? 0.72 : 0.3
+            background.backgroundColor = colour.withAlphaComponent(0.22).cgColor
         case "finished":
             spinner.isHidden = true
             ring.isHidden = false
             dot.isHidden = false
-            dot.path = CGPath(ellipseIn: full, transform: nil)
+            dot.path = CGPath(ellipseIn: box.insetBy(dx: 1, dy: 1), transform: nil)
             dot.fillColor = AppControlsStyle.good.cgColor
-            background.backgroundColor = AppControlsStyle.good.withAlphaComponent(0.22).cgColor
+            background.backgroundColor = AppControlsStyle.good.withAlphaComponent(0.24).cgColor
         default:
             spinner.isHidden = true
             ring.isHidden = true
             dot.isHidden = false
-            dot.path = CGPath(ellipseIn: small, transform: nil)
+            dot.path = CGPath(ellipseIn: box.insetBy(dx: box.width * 0.25, dy: box.height * 0.25), transform: nil)
             dot.fillColor = NSColor(white: 0.55, alpha: 1).cgColor
             background.backgroundColor = NSColor(white: 1, alpha: 0.1).cgColor
         }
@@ -305,17 +395,17 @@ final class LobSessionChip: NSView {
     private func startAnimations(_ kind: String) {
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
         switch kind {
-        case "working":
+        case "working", "delegate":
             let spin = CABasicAnimation(keyPath: "transform.rotation.z")
             spin.fromValue = 0
             spin.toValue = -2 * Double.pi
-            spin.duration = 0.9
+            spin.duration = kind == "working" ? 0.9 : 2
             spin.repeatCount = .infinity
             spinner.add(spin, forKey: "spin")
         case "finished":
             let grow = CABasicAnimation(keyPath: "transform.scale")
             grow.fromValue = 1
-            grow.toValue = 1.9
+            grow.toValue = 2
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0.9
             fade.toValue = 0
@@ -327,7 +417,7 @@ final class LobSessionChip: NSView {
             ring.add(pulse, forKey: "pulse")
             let breathe = CABasicAnimation(keyPath: "backgroundColor")
             breathe.fromValue = AppControlsStyle.good.withAlphaComponent(0.12).cgColor
-            breathe.toValue = AppControlsStyle.good.withAlphaComponent(0.32).cgColor
+            breathe.toValue = AppControlsStyle.good.withAlphaComponent(0.34).cgColor
             breathe.duration = 1.4
             breathe.autoreverses = true
             breathe.repeatCount = .infinity
@@ -341,7 +431,7 @@ final class LobSessionChip: NSView {
         let seconds = max(0, Int(Date().timeIntervalSince(since)))
         if seconds < 60 { return "\(seconds)s" }
         if seconds < 3600 { return "\(seconds / 60)m" }
-        return "\(seconds / 3600)h \(seconds % 3600 / 60)m"
+        return "\(seconds / 3600)h"
     }
 }
 

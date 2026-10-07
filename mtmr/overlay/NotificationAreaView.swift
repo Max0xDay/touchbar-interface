@@ -24,6 +24,13 @@ final class NotificationAreaView: NSView {
     private var icon: NSImage?
     private var targetIcon: NSImage?
     private var shownIcon: NSImage?
+    /// Two-line entries: a heading above the text; the text then uses a smaller font.
+    private let heading = NSTextField(labelWithString: "")
+    private let headingFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
+    private let detailFont = NSFont.systemFont(ofSize: 10)
+    private var title: String?
+    private var targetTitle: String?
+    private var shownTitle: String?
     private let maxChars: Int
     private let fadeSeconds: Double
     private let inset = CGFloat(NotificationTextMetrics.innerInset)
@@ -60,6 +67,14 @@ final class NotificationAreaView: NSView {
         iconView.imageScaling = .scaleProportionallyUpOrDown
         iconView.layer?.opacity = 0
         addSubview(iconView)
+        heading.wantsLayer = true
+        heading.font = headingFont
+        heading.textColor = .white
+        heading.maximumNumberOfLines = 1
+        heading.lineBreakMode = .byTruncatingTail
+        heading.cell?.wraps = false
+        heading.layer?.opacity = 0
+        addSubview(heading)
         setContentHuggingPriority(.init(1), for: .horizontal)
         setContentCompressionResistancePriority(.init(1), for: .horizontal)
         NotificationDebug.hierarchy(self)
@@ -107,8 +122,13 @@ final class NotificationAreaView: NSView {
         }
     }
 
-    func show(text: String, icon: NSImage? = nil) {
-        self.text = text.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
+    func show(text: String, icon: NSImage? = nil, title: String? = nil) {
+        func collapse(_ value: String) -> String {
+            return value.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
+        }
+        self.text = collapse(text)
+        let heading = title.map(collapse)
+        self.title = self.text.isEmpty || heading?.isEmpty != false ? nil : heading
         self.icon = self.text.isEmpty ? nil : icon
         updateText(animated: true)
     }
@@ -123,6 +143,10 @@ final class NotificationAreaView: NSView {
         let labelHeight = min(bounds.height, ceil(font.ascender - font.descender + font.leading) + 2)
         let available = max(0, bounds.width - 2 * inset)
         let labelY = bounds.midY - labelHeight / 2
+        if shownTitle != nil {
+            positionTwoLines(available: available)
+            return
+        }
         guard shownIcon != nil else {
             label.frame = NSRect(x: bounds.minX + min(inset, bounds.width / 2), y: labelY, width: available, height: labelHeight)
             return
@@ -134,18 +158,31 @@ final class NotificationAreaView: NSView {
         label.frame = NSRect(x: groupX + iconSpace, y: labelY, width: textWidth, height: labelHeight)
     }
 
+    /// Heading (top) and text (below, smaller), left-aligned with each other; icon and lines centre as one group.
+    private func positionTwoLines(available: CGFloat) {
+        let iconSpace = shownIcon == nil ? 0 : Self.iconSize + Self.iconGap
+        let linesWidth = min(max(0, available - iconSpace), ceil(max(heading.intrinsicContentSize.width, label.intrinsicContentSize.width)))
+        let groupX = bounds.midX - (iconSpace + linesWidth) / 2
+        iconView.frame = NSRect(x: groupX, y: bounds.midY - Self.iconSize / 2, width: Self.iconSize, height: Self.iconSize)
+        heading.frame = NSRect(x: groupX + iconSpace, y: bounds.midY, width: linesWidth, height: 15)
+        label.frame = NSRect(x: groupX + iconSpace, y: bounds.midY - 13, width: linesWidth, height: 13)
+    }
+
     private func updateText(animated: Bool) {
         let iconSpace = icon == nil ? 0 : Double(Self.iconSize + Self.iconGap)
         let capacity = NotificationTextMetrics.capacity(width: max(0, Double(bounds.width) - iconSpace), inset: Double(inset), glyphWidth: Double(glyphWidth), maxChars: maxChars)
-        let nextText = NotificationTextMetrics.truncated(text, capacity: capacity)
+        // Two-line entries use proportional fonts; the label truncates them itself.
+        let nextText = title == nil ? NotificationTextMetrics.truncated(text, capacity: capacity) : text
         let nextIcon = nextText.isEmpty ? nil : icon
+        let nextTitle = nextText.isEmpty ? nil : title
         if animated {
-            guard nextText != targetText || nextIcon !== targetIcon else { return }
+            guard nextText != targetText || nextIcon !== targetIcon || nextTitle != targetTitle else { return }
         } else if pendingTransition == nil {
-            guard nextText != label.stringValue || nextIcon !== shownIcon else { return }
+            guard nextText != label.stringValue || nextIcon !== shownIcon || nextTitle != shownTitle else { return }
         }
         targetText = nextText
         targetIcon = nextIcon
+        targetTitle = nextTitle
         let currentOpacity = label.layer?.presentation()?.opacity ?? label.layer?.opacity ?? 1
         transitionGeneration += 1
         let generation = transitionGeneration
@@ -153,16 +190,16 @@ final class NotificationAreaView: NSView {
         pendingTransition = nil
         for layer in contentLayers { layer.removeAllAnimations() }
         guard animated else {
-            setLabel(nextText, icon: nextIcon)
+            setLabel(nextText, icon: nextIcon, title: nextTitle)
             return
         }
         guard fadeSeconds > 0 else {
-            setLabel(nextText, icon: nextIcon)
+            setLabel(nextText, icon: nextIcon, title: nextTitle)
             return
         }
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         if label.stringValue.isEmpty {
-            reveal(nextText, icon: nextIcon, reduceMotion: reduceMotion)
+            reveal(nextText, icon: nextIcon, title: nextTitle, reduceMotion: reduceMotion)
             return
         }
         let duration = reduceMotion ? 0.15 : (nextText.isEmpty ? 0.25 : 0.12)
@@ -171,31 +208,39 @@ final class NotificationAreaView: NSView {
             guard let self = self else { return }
             guard self.transitionGeneration == generation else { return }
             self.pendingTransition = nil
-            self.reveal(nextText, icon: nextIcon, reduceMotion: reduceMotion)
+            self.reveal(nextText, icon: nextIcon, title: nextTitle, reduceMotion: reduceMotion)
         }
         pendingTransition = transition
         DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: transition)
     }
 
     private var contentLayers: [CALayer] {
-        return [label.layer, iconView.layer].compactMap { $0 }
+        return [label.layer, iconView.layer, heading.layer].compactMap { $0 }
     }
 
-    private func setLabel(_ nextText: String, icon nextIcon: NSImage?) {
+    private func setLabel(_ nextText: String, icon nextIcon: NSImage?, title nextTitle: String?) {
         label.stringValue = nextText
         shownIcon = nextIcon
         iconView.image = nextIcon
+        shownTitle = nextTitle
+        heading.stringValue = nextTitle ?? ""
+        // One line: 15 pt monospaced, centred. Two lines: the text becomes the smaller second line.
+        label.font = nextTitle == nil ? font : detailFont
+        label.textColor = nextTitle == nil ? .white : NSColor(white: 0.72, alpha: 1)
+        label.alignment = nextTitle == nil ? .center : .left
+        heading.alignment = .left
         positionContent()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         label.layer?.opacity = nextText.isEmpty ? 0 : 1
         iconView.layer?.opacity = nextIcon == nil ? 0 : 1
+        heading.layer?.opacity = nextTitle == nil ? 0 : 1
         for layer in contentLayers { layer.transform = CATransform3DIdentity }
         CATransaction.commit()
     }
 
-    private func reveal(_ nextText: String, icon nextIcon: NSImage?, reduceMotion: Bool) {
-        setLabel(nextText, icon: nextIcon)
+    private func reveal(_ nextText: String, icon nextIcon: NSImage?, title nextTitle: String?, reduceMotion: Bool) {
+        setLabel(nextText, icon: nextIcon, title: nextTitle)
         guard !nextText.isEmpty else { return }
         let duration = reduceMotion ? 0.15 : fadeSeconds
         animateOpacity(from: 0, to: 1, seconds: duration, timing: .easeOut)
@@ -211,8 +256,10 @@ final class NotificationAreaView: NSView {
     }
 
     private func animateOpacity(from: Float, to: Float, seconds: Double, timing: CAMediaTimingFunctionName) {
-        // The icon fades with the text; an absent icon stays at 0.
-        let layers = shownIcon == nil ? [label.layer].compactMap { $0 } : contentLayers
+        // Icon and heading fade with the text; absent ones stay at 0.
+        var layers = [label.layer].compactMap { $0 }
+        if shownIcon != nil, let iconLayer = iconView.layer { layers.append(iconLayer) }
+        if shownTitle != nil, let headingLayer = heading.layer { layers.append(headingLayer) }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for layer in layers { layer.opacity = to }

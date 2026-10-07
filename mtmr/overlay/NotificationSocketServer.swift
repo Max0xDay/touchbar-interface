@@ -21,6 +21,9 @@ final class NotificationSocketServer {
         let cmd: String
         let text: String?
         let seconds: Double?
+        let title: String?
+        /// Bundle id whose app icon shows with the notification, e.g. "com.microsoft.teams2".
+        let app: String?
     }
 
     /// Extra commands registered by features (e.g. App Controls). Runs on the main queue with the whole
@@ -239,7 +242,7 @@ final class NotificationSocketServer {
                     guard seconds > 0 else { return rejected("seconds must be positive") }
                     guard seconds <= 86400 else { return rejected("seconds must not exceed 86400") }
                 }
-                guard NotificationStore.shared.notify(text: text, seconds: command.seconds) else {
+                guard NotificationStore.shared.notify(text: text, seconds: command.seconds, icon: command.app.flatMap(Self.appIcon), title: command.title) else {
                     return rejected("Notification queue is full (256 entries)")
                 }
             case "clear":
@@ -271,6 +274,13 @@ final class NotificationSocketServer {
             NSLog("MTMR socket invalid JSON: %@", String(describing: error))
             return ["ok": false, "error": "Invalid JSON command"]
         }
+    }
+
+    private static func appIcon(_ bundleId: String) -> NSImage? {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else { return nil }
+        let icon = NSWorkspace.shared.icon(forFile: url.path)
+        icon.size = NSSize(width: 18, height: 18)
+        return icon
     }
 
     private func rejected(_ message: String) -> Reply {

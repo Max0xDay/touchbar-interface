@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """One-shot Chrome DevTools Protocol client for the Microsoft Teams microphone mute state.
 
-Usage: teams-cdp.py status|toggle|mute|unmute|discover
+Usage: teams-cdp.py status|toggle|mute|unmute|discover|meeting
 Port: TEAMS_DEBUG_PORT (default 9333), always on 127.0.0.1.
 Exit codes: 0 ok, 1 error, 3 debug port not reachable, 4 not in a call.
 
-Standard library only. Only the mic button's mute attribute is ever read; no page content, tokens or
-target details are printed or stored.
+Standard library only. Only the mic button's mute attribute is ever read from a page; no page content or
+tokens are printed or stored. `meeting` prints the window title of the call page (target metadata from the
+debug port's /json list, e.g. "Weekly sync | Microsoft Teams" -> "Weekly sync").
 """
 import base64
 import hashlib
@@ -313,7 +314,7 @@ def is_candidate_target(target):
     return is_teams_host(urlparse(str(target.get("url", ""))).hostname or "")
 
 
-def list_candidate_target_identifiers(port, deadline):
+def list_candidate_targets(port, deadline):
     connection = http.client.HTTPConnection(LOOPBACK_ADDRESS, port, timeout=deadline.next_socket_timeout_seconds())
     try:
         connection.request("GET", "/json")
@@ -332,7 +333,35 @@ def list_candidate_target_identifiers(port, deadline):
         raise CdpError("debug port sent a non-JSON target list")
     if not isinstance(targets, list):
         raise CdpError("debug port sent an unexpected target list")
-    return [target["id"] for target in targets if is_candidate_target(target)]
+    return [target for target in targets if is_candidate_target(target)]
+
+
+def list_candidate_target_identifiers(port, deadline):
+    return [target["id"] for target in list_candidate_targets(port, deadline)]
+
+
+TEAMS_TITLE_SUFFIX = " | Microsoft Teams"
+
+
+def meeting_title(target):
+    title = str(target.get("title", "")).strip()
+    if title.endswith(TEAMS_TITLE_SUFFIX):
+        title = title[:-len(TEAMS_TITLE_SUFFIX)].strip()
+    return title[:MAXIMUM_LABEL_LENGTH] if title and title != "Microsoft Teams" else ""
+
+
+def run_meeting(port, deadline):
+    """Prints the title of the call window (the page that has the mic button); exit 4 when not in a call."""
+    for target in list_candidate_targets(port, deadline):
+        session = CdpSession(port, target["id"], deadline)
+        try:
+            state = read_state(session)
+        finally:
+            session.close()
+        if state != STATE_NO_CALL:
+            print(meeting_title(target))
+            return EXIT_OK
+    raise CdpError("not in a call (no mic button found)", EXIT_NOT_IN_CALL)
 
 
 def read_state(session):
@@ -430,15 +459,17 @@ def run_state_command(command, port, deadline):
 
 
 def main(arguments):
-    commands = ("status", "toggle", "mute", "unmute", "discover")
+    commands = ("status", "toggle", "mute", "unmute", "discover", "meeting")
     if len(arguments) != 1 or arguments[0] not in commands:
-        print("usage: teams-cdp.py status|toggle|mute|unmute|discover", file=sys.stderr)
+        print("usage: teams-cdp.py status|toggle|mute|unmute|discover|meeting", file=sys.stderr)
         return EXIT_ERROR
     try:
         port = read_debug_port()
         deadline = Deadline(COMMAND_DEADLINE_SECONDS)
         if arguments[0] == "discover":
             return run_discover(port, deadline)
+        if arguments[0] == "meeting":
+            return run_meeting(port, deadline)
         return run_state_command(arguments[0], port, deadline)
     except CdpError as error:
         print("teams-cdp: %s" % error, file=sys.stderr)

@@ -1,8 +1,8 @@
 import Cocoa
 import IOKit
 
-/// Stats: five cells across the zone, each a small caption, a value and (where it helps) a meter:
-/// CPU (total + one bar per core, efficiency | performance) · GPU · MEM (% and GB) · TEMP · NET (down / up).
+/// Stats: four cells across the zone, each a small caption and a value:
+/// CPU (total + one bar per core, efficiency | performance) · MEM (% + meter) · TEMP · NET (down / up).
 /// Read directly from the system (the Stats app has no API); tapping the panel opens Stats.
 final class AppControlsStatsPanel: NSView, AppControlsPanel {
     static let id = "stats"
@@ -40,8 +40,8 @@ final class AppControlsStatsPanel: NSView, AppControlsPanel {
 
     // MARK: Drawing
 
-    /// Relative cell widths: CPU, GPU, MEM, TEMP, NET.
-    private static let weights: [CGFloat] = [0.29, 0.14, 0.21, 0.14, 0.22]
+    /// Relative cell widths: CPU, MEM, TEMP, NET.
+    private static let weights: [CGFloat] = [0.36, 0.22, 0.17, 0.25]
     private static let cellGap: CGFloat = 6
 
     override func draw(_: NSRect) {
@@ -54,13 +54,9 @@ final class AppControlsStatsPanel: NSView, AppControlsPanel {
             x += width + Self.cellGap
         }
         drawCPU(in: cells[0])
-        drawGauge(in: cells[1], caption: "GPU", value: snapshot.gpu.map { Self.percent($0) }, fraction: snapshot.gpu)
-        let memoryCaption = snapshot.memoryUsedBytes.map { String(format: "MEM %.1fG", Double($0) / 1_073_741_824) } ?? "MEM"
-        drawGauge(in: cells[2], caption: memoryCaption, value: snapshot.memory.map { Self.percent($0) }, fraction: snapshot.memory)
-        // Temperature: 40 °C reads as empty, 100 °C as full; orange from 80 °C, red from 92 °C.
-        drawGauge(in: cells[3], caption: "TEMP", value: snapshot.temperature.map { "\(Int($0.rounded()))°" },
-                  fraction: snapshot.temperature.map { ($0 - 40) / 60 }, warnAt: 2.0 / 3, badAt: 0.87)
-        drawNetwork(in: cells[4])
+        drawGauge(in: cells[1], caption: "MEM", value: snapshot.memory.map { Self.percent($0) }, fraction: snapshot.memory)
+        drawGauge(in: cells[2], caption: "TEMP", value: snapshot.temperature.map { "\(Int($0.rounded()))°" }, fraction: nil)
+        drawNetwork(in: cells[3])
     }
 
     private func drawCaption(_ text: String, at point: NSPoint, width: CGFloat) {
@@ -71,11 +67,12 @@ final class AppControlsStatsPanel: NSView, AppControlsPanel {
         Self.draw(text, font: NSFont.monospacedDigitSystemFont(ofSize: size, weight: .semibold), color: AppControlsStyle.primaryText, in: NSRect(x: point.x, y: point.y, width: width, height: size + 3))
     }
 
-    /// Caption (top), value (middle), thin meter (bottom).
+    /// Caption (top), value (middle) and, with a fraction, a thin meter (bottom).
     private func drawGauge(in cell: NSRect, caption: String, value: String?, fraction: Double?, warnAt: Double = 0.7, badAt: Double = 0.9) {
         drawCaption(caption, at: NSPoint(x: cell.minX, y: 20), width: cell.width)
         drawValue(value ?? "–", at: NSPoint(x: cell.minX, y: 5), width: cell.width)
-        drawMeter(NSRect(x: cell.minX, y: 1, width: cell.width, height: 3), fraction: fraction ?? 0, warnAt: warnAt, badAt: badAt)
+        guard let fraction = fraction else { return }
+        drawMeter(NSRect(x: cell.minX, y: 1, width: cell.width, height: 3), fraction: fraction, warnAt: warnAt, badAt: badAt)
     }
 
     /// Total on the left; one vertical bar per core on the right, efficiency cores then performance cores.
@@ -153,9 +150,7 @@ final class SystemMetrics {
     struct Snapshot {
         var cpu: Double?
         var cores: [Double] = []
-        var gpu: Double?
         var memory: Double?
-        var memoryUsedBytes: UInt64?
         var temperature: Double?
         var downloadBytesPerSecond: Double?
         var uploadBytesPerSecond: Double?
@@ -178,10 +173,8 @@ final class SystemMetrics {
         var snapshot = Snapshot()
         snapshot.cores = coreUsage()
         if !snapshot.cores.isEmpty { snapshot.cpu = snapshot.cores.reduce(0, +) / Double(snapshot.cores.count) }
-        snapshot.gpu = gpuUsage()
         if let memory = memoryUsage() {
-            snapshot.memoryUsedBytes = memory.used
-            snapshot.memory = Double(memory.used) / Double(ProcessInfo.processInfo.physicalMemory)
+            snapshot.memory = Double(memory.used) / Double(memory.total)
         }
         snapshot.temperature = thermal.cpuTemperature()
         if let rates = networkRates() {
@@ -213,25 +206,6 @@ final class SystemMetrics {
             guard now.total > before.total, now.busy >= before.busy else { return 0 }
             return Double(now.busy - before.busy) / Double(now.total - before.total)
         }
-    }
-
-    /// GPU "Device Utilization %" from the IOAccelerator's PerformanceStatistics (no privileges needed).
-    private func gpuUsage() -> Double? {
-        var iterator: io_iterator_t = 0
-        guard IOServiceGetMatchingServices(0, IOServiceMatching("IOAccelerator"), &iterator) == KERN_SUCCESS else { return nil }
-        defer { IOObjectRelease(iterator) }
-        var result: Double?
-        var service = IOIteratorNext(iterator)
-        while service != 0 {
-            if result == nil,
-               let statistics = IORegistryEntryCreateCFProperty(service, "PerformanceStatistics" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? [String: Any],
-               let utilisation = statistics["Device Utilization %"] as? NSNumber {
-                result = utilisation.doubleValue / 100
-            }
-            IOObjectRelease(service)
-            service = IOIteratorNext(iterator)
-        }
-        return result
     }
 
     /// App memory + wired + compressed (Activity Monitor's "Memory Used").

@@ -10,6 +10,8 @@ final class NotificationStore {
     private struct Entry {
         let text: String
         let icon: NSImage?
+        /// Optional heading: the entry then shows as two lines (heading, then `text` smaller below).
+        let title: String?
         /// systemUptime at which the entry expires (moved later by pauses).
         var deadline: Double
     }
@@ -29,13 +31,18 @@ final class NotificationStore {
         return entries.isEmpty ? nil : entries[selectedIndex].icon
     }
 
+    var title: String? {
+        return entries.isEmpty ? nil : entries[selectedIndex].title
+    }
+
     private var now: Double { return ProcessInfo.processInfo.systemUptime }
 
-    func notify(text: String, seconds: Double?, icon: NSImage? = nil) -> Bool {
+    func notify(text: String, seconds: Double?, icon: NSImage? = nil, title: String? = nil) -> Bool {
         dispatchPrecondition(condition: .onQueue(.main))
         guard entries.count < 256 else { return false }
         // While paused, the countdown starts from the pause moment so resume() shifts it like the others.
-        entries.append(Entry(text: text, icon: icon, deadline: (pausedAt ?? now) + (seconds ?? defaultSeconds)))
+        let heading = title.flatMap { $0.isEmpty ? nil : $0 }
+        entries.append(Entry(text: text, icon: icon, title: heading, deadline: (pausedAt ?? now) + (seconds ?? defaultSeconds)))
         selectedIndex = entries.count - 1
         scheduleExpiry()
         publish()
@@ -124,9 +131,9 @@ final class NotificationTouchBarItem: NSCustomTouchBarItem {
         NotificationStore.shared.welcome = self.layoutOptions.welcome
         let notificationView = NotificationAreaView(maxChars: maxChars, fadeSeconds: self.layoutOptions.fadeSeconds)
         view = notificationView
-        notificationView.show(text: NotificationStore.shared.text, icon: NotificationStore.shared.icon)
+        notificationView.show(text: NotificationStore.shared.text, icon: NotificationStore.shared.icon, title: NotificationStore.shared.title)
         observer = NotificationCenter.default.addObserver(forName: NotificationStore.changed, object: nil, queue: .main) { [weak notificationView] _ in
-            notificationView?.show(text: NotificationStore.shared.text, icon: NotificationStore.shared.icon)
+            notificationView?.show(text: NotificationStore.shared.text, icon: NotificationStore.shared.icon, title: NotificationStore.shared.title)
         }
     }
 

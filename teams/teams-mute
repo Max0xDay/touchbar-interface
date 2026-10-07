@@ -1,17 +1,18 @@
 #!/bin/bash
 # Reads or changes the Microsoft Teams microphone mute state through the local debug port (one-shot, no daemon).
-# Usage: teams-mute status|toggle|mute|unmute|discover
+# Usage: teams-mute status|toggle|mute|unmute|discover|meeting
 # Exit codes: 0 ok, 1 error, 3 debug port not reachable, 4 not in a call. Port: TEAMS_DEBUG_PORT (default 9333).
 set -euo pipefail
 scriptDirectory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 print_usage() {
-  echo 'usage: teams-mute status|toggle|mute|unmute|discover' >&2
+  echo 'usage: teams-mute status|toggle|mute|unmute|discover|meeting' >&2
   echo '  status    prints muted, unmuted or no-call' >&2
   echo '  toggle    flips the mic and prints the new state' >&2
   echo '  mute      mutes (no-op if already muted) and prints the state' >&2
   echo '  unmute    unmutes (no-op if already unmuted) and prints the state' >&2
   echo '  discover  in a call: prints candidate mic button attributes only' >&2
+  echo '  meeting   in a call: prints the meeting title (the call window title)' >&2
 }
 
 if [[ $# -ne 1 ]]; then
@@ -20,7 +21,7 @@ if [[ $# -ne 1 ]]; then
 fi
 
 case "$1" in
-  status|toggle|mute|unmute|discover) ;;
+  status|toggle|mute|unmute|discover|meeting) ;;
   *) print_usage; exit 1 ;;
 esac
 

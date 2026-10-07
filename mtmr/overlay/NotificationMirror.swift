@@ -61,10 +61,12 @@ final class NotificationMirror {
     private func post(_ record: Record, options: NotificationMirrorOptions) {
         let app = record.app.lowercased()
         guard !options.ignoreApps.contains(app) else { return }
-        let text = [record.title, record.body].filter { !$0.isEmpty }.joined(separator: ": ")
-        guard !text.isEmpty else { return }
+        guard !record.title.isEmpty || !record.body.isEmpty else { return }
         let seconds = options.stickyApps.contains(app) ? options.stickySeconds : nil
-        _ = NotificationStore.shared.notify(text: text, seconds: seconds, icon: icon(for: app, options: options))
+        // Title and body: two lines (heading, then the body smaller). Only one of them: a single line.
+        let twoLines = !record.title.isEmpty && !record.body.isEmpty
+        _ = NotificationStore.shared.notify(text: twoLines ? record.body : record.title + record.body, seconds: seconds,
+                                            icon: icon(for: app, options: options), title: twoLines ? record.title : nil)
     }
 
     private func icon(for app: String, options: NotificationMirrorOptions) -> NSImage? {

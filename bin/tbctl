@@ -3,7 +3,8 @@
 
 Protocol: AF_UNIX/SOCK_STREAM, one UTF-8 JSON object per newline, at most
 4096 bytes excluding newline. Commands: {"cmd":"notify","text":"...",
-"seconds":5} (seconds optional, positive, <=86400), {"cmd":"clear"},
+"seconds":5,"title":"Heading"} (seconds and title optional; seconds positive,
+<=86400; a title makes two lines: heading, then text smaller), {"cmd":"clear"},
 {"cmd":"button",...}, {"cmd":"buttons"}, {"cmd":"app","id":"stats"}, {"cmd":"apps"}.
 Each command gets {"ok":true} or {"ok":false,"error":"..."} plus newline.
 Unknown fields are reserved for extensions; unknown commands are rejected.
@@ -35,6 +36,8 @@ def parseArguments():
     notificationParser = commands.add_parser("notify", parents=[sharedOptions])
     notificationParser.add_argument("text")
     notificationParser.add_argument("--seconds", type=float)
+    notificationParser.add_argument("--title", help="heading line; TEXT then shows smaller below it")
+    notificationParser.add_argument("--app", metavar="BUNDLE_ID", help="show this app's icon, e.g. com.microsoft.teams2")
     commands.add_parser("clear", parents=[sharedOptions])
     commands.add_parser("buttons", parents=[sharedOptions])
     appParser = commands.add_parser("app", parents=[sharedOptions], help="select an App Controls panel (no ID: list them)")
@@ -57,6 +60,10 @@ def parseArguments():
         command = {"cmd": "app", "id": arguments.id} if arguments.id else {"cmd": "apps"}
     if arguments.command == "notify":
         command["text"] = arguments.text
+        if arguments.title:
+            command["title"] = arguments.title
+        if arguments.app:
+            command["app"] = arguments.app
         if arguments.seconds is not None:
             if not math.isfinite(arguments.seconds):
                 parser.error("--seconds must be finite")
