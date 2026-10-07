@@ -3,9 +3,9 @@
 Builds [MTMR](https://github.com/Toxblh/MTMR) (My TouchBar My Rules) as a **native arm64** app on an M1 MacBook Pro, using only the Xcode Command Line Tools.
 
 - No Xcode, no Rosetta 2, no network access, no `sudo`.
-- Last verified: 2026-10-02, macOS 14.7.6, Apple M1 (`MacBookPro17,1`), Swift 6.0.3, upstream commit `94fc98c`.
+- Last verified: 2026-10-07, macOS 14.7.6, Apple M1 (`MacBookPro17,1`), Swift 6.0.3, upstream commit `94fc98c`.
 
-Why this exists: upstream's last release (v0.27.0, 2020) is Intel-only and needs Rosetta 2, and building it normally needs full Xcode. Upstream's source gained arm64 support in May 2026 (commit `94fc98c`) but has no release. Background and evidence: [findings.md](findings.md), section 1 and 3.
+Why this exists: upstream's last release (v0.27.0, 2020) is Intel-only and needs Rosetta 2, and building it normally needs full Xcode. Upstream's source gained arm64 support in May 2026 (commit `94fc98c`) but has no release. Background and evidence: [findings.md](findings.md), sections 1 and 3.
 
 ## Prerequisites
 
@@ -28,6 +28,7 @@ Expected layout (the default; override with `MTMR_CHECKOUT`):
 ```bash
 cd touchbar-interface
 mtmr/build.sh          # about 70 seconds; output: build/MTMR.app
+bash mtmr/tests/run-tests.sh   # all tests, about 150 seconds; build first (one harness compiles from build/work/src)
 ```
 
 The script refuses to run if it is not on arm64, is under Rosetta, the checkout is not at the pinned commit, or the checkout has local changes. It prints one `==>` line per step and ends with `Built .../build/MTMR.app (arm64)`. Compiler warnings from upstream code (deprecated APIs, unused variables) are normal.
@@ -44,7 +45,7 @@ pgrep -lx MTMR               # is it running?
 
 To rebuild while it runs: build first, then quit and `open` again.
 
-**First run:** macOS asks for **Accessibility** access (System Settings > Privacy & Security > Accessibility). Grant it or the esc, volume and brightness keys do nothing.
+**First run:** macOS asks for **Accessibility** access (System Settings > Privacy & Security > Accessibility). Grant it. Without it, key presses from the bar and the VS Code panel do not work.
 
 **After every rebuild you must reset and re-grant Accessibility.** The app is signed ad hoc (`codesign -s -`), so its signature changes with each build, and macOS ties the permission to the signature of the build that was approved. The old record keeps showing as enabled in Settings, but silently stops matching, so the Touch Bar buttons do nothing. Adding the new app with **+** does not fix it: the bundle ID is the same, so macOS just re-enables the stale record. Fix:
 
@@ -68,33 +69,25 @@ How to confirm it is fixed: this must print nothing after a restart (use the ful
 
 MTMR reads `~/Library/Application Support/MTMR/items.json` and **reloads it automatically whenever the file is saved** (no restart). On first run it copies `defaultPreset.json` there.
 
-- Back up before editing: `cp ~/Library/Application\ Support/MTMR/items.json <backup path>`.
+- Install a layout with `bin/tbctl layout actual` (or `template`). The command backs up the live file and writes it in place. See [layouts.md](layouts.md).
 - Edit **in place** (save the same file). Replacing the file with a new one (some editors and atomic writes do this) breaks MTMR's file watcher until you restart it.
-- The original untouched default is also inside the app: `build/MTMR.app/Contents/Resources/defaultPreset.json`.
-- Applied 2026-10-02: removed the Spotify and iTunes buttons (iTunes no longer exists on macOS 10.15+, so AppleScript asks "where is iTunes?") and the weather widget (needs an API key and Location permission). Backup of the original: `<project root>/backups/mtmr-items-20261002-102627-default.json`. To undo, copy it back over `items.json`.
-
-## Apple's control strip (important)
-
-MTMR by default takes over the whole Touch Bar and hides Apple's control strip. We want Apple's real strip on the right, so this setting must be on for our build:
-
-```bash
-defaults write com.maxday.touchbar-interface.mtmr-dev com.toxblh.mtmr.settings.showControlStrip -bool true
-# undo: defaults delete com.maxday.touchbar-interface.mtmr-dev com.toxblh.mtmr.settings.showControlStrip
-```
-
-Quit and reopen MTMR afterwards. The menu-bar item **Hide Control Strip** (unchecked = strip shown) does the same. If the strip is missing after a fresh build or on another machine, this is why. Details: `findings.md`, "KEY FINDING".
+- Our bar owns the whole width: leave `com.toxblh.mtmr.settings.showControlStrip` unset. Apple's control strip is then not shown.
 
 ## What the build changes versus upstream
 
 All changes live in this repo, never in the upstream clone. The script copies the upstream sources to `build/work/`, patches the copy, compiles it.
 
-| Change | Where | Why |
-|---|---|---|
-| Drop `Main.storyboard` and `Info.plist`; start the app from code | `overlay/main.swift`, `overlay/Info.plist`, `@NSApplicationMain` removed | Compiling a storyboard needs `ibtool`, which only exists in Xcode. The storyboard held only the main menu. The app is a menu-bar agent (`LSUIElement`), so `main.swift` sets `.accessory` activation policy. |
-| Replace asset-catalogue image literals with a loader; copy the 12 PNGs into `Resources/` | `overlay/BundledImage.swift`, `patches/` | Compiling an asset catalogue needs `actool` (Xcode only). The images are plain PNGs. Without them the app **crashes at startup**. |
-| Remove the Sparkle auto-updater | `patches/` (`AppDelegate.swift`) | Needs a framework we do not build, and it contacted `mtmr.app` on every start. We do not want unattended updates in a fork. |
+| Patch | What it changes |
+|---|---|
+| `0001-native-build-without-xcode` | Starts the app from code (no storyboard), loads the 12 images from plain PNGs, removes the Sparkle updater. `ibtool` and `actool` exist only in Xcode. |
+| `0002-notification-area` | The `notification` item type, its queue and the socket server. |
+| `0003-layout-solver` | Places left items, the notification area and right items with the layout solver. |
+| `0004-live-buttons` | Buttons with an `id` that the socket can change. |
+| `0005-app-controls-watchers-welcome` | The `appControls` item type, watcher processes, the notification mirror; presents the bar again only when its items change. |
 
-The patch touches 7 files (`AppDelegate`, `ItemsParsing`, `TouchBarController`, `CPUBarItem`, `DnDBarItem`, `DarkModeBarItem`, `NightShiftBarItem`); only image loading and the updater are changed.
+Our own files are in `mtmr/overlay/`: the notification area, store, solver and socket server, live buttons, `TouchBarIcon`, `WatcherSupervisor`, `NotificationMirror` and the App Controls panels.
+
+To change patch 0005: apply upstream + 0001–0004 in a scratch git repository, commit, apply 0005 and edit, then write `git diff` without the `diff --git` and `index` lines back to the patch file.
 
 ## How the compile works (and why each flag is there)
 
@@ -110,7 +103,7 @@ The patch touches 7 files (`AppDelegate`, `ItemsParsing`, `TouchBarController`, 
 | `build.sh: upstream is at <hash>, patches were made for 94fc98c...` | The upstream clone moved. `git -C ../MTMR checkout 94fc98c`, or regenerate the patches (below). |
 | App starts then exits at once; crash report in `~/Library/Logs/DiagnosticReports/MTMR-*.ips` with `EXC_BREAKPOINT` | A missing bundled image (force-unwrapped lookup). Check `Contents/Resources/*.png` exists and that `BundledImage.swift` is in the build. |
 | macOS asks "Where is iTunes?" or similar | A preset button runs AppleScript for an app that is not installed. Remove that item from `items.json`. |
-| esc/volume/brightness keys do nothing | Accessibility permission missing or stale after a rebuild; see Run, above. |
+| Bar keys do nothing, or VS Code shows "No windows" | Accessibility permission missing or stale after a rebuild; see Run, above. |
 | Touch Bar did not change | `pgrep -lx MTMR`; read the log with `/usr/bin/log show --last 5m --style compact --predicate 'process == "MTMR"'`. Use the full path: `log` is a zsh builtin. |
 | Layout warning "Unable to simultaneously satisfy constraints ... width == 32 ... width == 38" | Harmless upstream cosmetic warning. |
 

@@ -32,7 +32,7 @@ The notification item accepts `"welcome": "text"`. MTMR shows the text as a noti
 - when a layout loads,
 - when the bar returns from Apple's bar.
 
-The actual layout uses "Welcome to the bar zone". The template layout has no welcome text.
+Neither layout uses a welcome text now (removed 2026-10-07).
 
 ## Notifications from other apps
 

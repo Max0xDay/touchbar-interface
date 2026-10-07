@@ -1,5 +1,7 @@
 # Notification layout maths
 
+> The worked examples use W=1085, the solver's fallback width. The real host width on this bar is 1004 pt (Verified 2026-10-06). The rules are the same; only the numbers change.
+
 Applies only when a `notification` item is present. Patch `0003-layout-solver.patch` replaces `0002`'s stack sizing with `NotificationLayoutView` and the AppKit-free `NotificationLayoutSolver`. Without a notification, `BasicView` keeps upstream's stack and gestures. The overlays implement direct-touch swipes and animated text. Patch `0004-live-buttons.patch` adds ids/live state hooks; visibility updates re-solve the same container without rebuilding the bar.
 
 ## Geometry and constant text size
