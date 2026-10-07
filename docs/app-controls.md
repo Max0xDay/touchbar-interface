@@ -17,7 +17,7 @@ The user picks the panel. The panel does not follow the frontmost app. The choic
 | YouTube Music | `ytmusic` | Pear app icon | Cover, title, artist, a thin progress line, and the previous / play-pause / next buttons. | Cover or title: brings Pear to the front, or opens Pear if it does not run. |
 | VS Code | `vscode` | VS Code icon | A window toggle, a Run button (▶), and a command button (⌘). The window toggle shows the current window in the colour of that window: a colour stripe, the project name, the open file, and one coloured dot for each window. The current window has the large dot with a white ring. | Window toggle: goes to the next window. If VS Code is not in front, the first tap brings the current window to the front. Run: presses F5 (Run > Start Debugging). Command button: opens the Command Palette (⇧⌘P). |
 | Stats | `stats` | Stats app icon | Five cells: CPU (total and one bar for each core, efficiency cores then performance cores), GPU, MEM (% and GB used), TEMP (CPU temperature), and NET (download and upload rate). | Opens the Stats app. |
-| lob | `lob` | Terminal tile (white ">" and blue "_" on charcoal) | One chip for each lob session: a spinner while Claude works, a pulsing green dot when Claude finishes and waits for a reply, a grey dot when idle. | Nothing |
+| lob | `lob` | Terminal tile (orange ">_" on black) | One chip for each lob session: a spinner while Claude works, a pulsing green dot when Claude finishes and waits for a reply, a grey dot when idle. | Nothing |
 
 If no panel is selected, App Controls shows the System panel.
 

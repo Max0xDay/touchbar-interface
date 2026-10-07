@@ -122,7 +122,9 @@ def main():
     while not stopped.is_set():
         command = readState(arguments.status_command)
         # In a call only when the mic state was read (green or red); yellow "unreadable" is not a join.
-        nowInCall = command["visible"] and command["tint"] in ("#34c759", "#ff3b30")
+        # In a call only when the mic state was read (green or red); yellow "unreadable" is not a join.
+        # In a call only when the mic state was read (green or red); yellow "unreadable" is not a join.
+        nowInCall = command["visible"] and command["tint"] in ("#34c759", "#ff3b30") and command["tint"] in ("#34c759", "#ff3b30") and command["tint"] in ("#34c759", "#ff3b30")
         # Announce a join only on a change seen by this watcher (not when it starts mid-call).
         if inCall is False and nowInCall and not arguments.dry_run:
             applyState(arguments.socket, meetingNotification(arguments.status_command))

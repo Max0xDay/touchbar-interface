@@ -36,7 +36,6 @@
     "align": "center",
     "maxChars": 36,
     "defaultSeconds": 8,
-    "welcome": "Welcome to the bar zone",
     "mirror": {
       "stickyApps": ["com.microsoft.teams2", "com.microsoft.outlook"],
       "stickySeconds": 600,

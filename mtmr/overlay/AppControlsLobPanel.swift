@@ -435,14 +435,13 @@ final class LobSessionPill: NSView {
     }
 }
 
-/// The lob icon, drawn in code: a terminal prompt — white ">" and a blue "_" cursor — on a charcoal tile.
-/// Generic colours only.
+/// The lob icon, drawn in code: a terminal prompt — orange ">_" — on a black tile (user's choice: orange and black).
 func lobIcon(size: CGFloat) -> NSImage {
     return NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
         let tile = rect.insetBy(dx: rect.width * 0.06, dy: rect.height * 0.06)
         let corner = tile.width * 0.24
         let shape = NSBezierPath(roundedRect: tile, xRadius: corner, yRadius: corner)
-        NSGradient(starting: NSColor(white: 0.24, alpha: 1), ending: NSColor(white: 0.08, alpha: 1))?.draw(in: shape, angle: -90)
+        NSGradient(starting: NSColor(white: 0.12, alpha: 1), ending: NSColor(white: 0.02, alpha: 1))?.draw(in: shape, angle: -90)
         // A faint edge keeps the dark tile visible on the black bar.
         NSColor(white: 1, alpha: 0.18).setStroke()
         shape.lineWidth = max(0.5, size * 0.02)
@@ -458,11 +457,12 @@ func lobIcon(size: CGFloat) -> NSImage {
         chevron.lineWidth = stroke
         chevron.lineCapStyle = .round
         chevron.lineJoinStyle = .round
-        NSColor.white.setStroke()
+        let orange = NSColor(srgbRed: 1, green: 0.58, blue: 0.1, alpha: 1)
+        orange.setStroke()
         chevron.stroke()
 
         let cursor = NSRect(x: tile.minX + tile.width * 0.5, y: tile.midY - tile.height * 0.17 - stroke / 2, width: tile.width * 0.26, height: stroke)
-        NSColor(srgbRed: 0.35, green: 0.6, blue: 1, alpha: 1).setFill()
+        orange.setFill()
         NSBezierPath(roundedRect: cursor, xRadius: stroke / 2, yRadius: stroke / 2).fill()
         return true
     }
