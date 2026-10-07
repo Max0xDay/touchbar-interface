@@ -33,3 +33,29 @@ The notification item accepts `"welcome": "text"`. MTMR shows the text as a noti
 - when the bar returns from Apple's bar.
 
 The actual layout uses "Welcome to the bar zone". The template layout has no welcome text.
+
+## Notifications from other apps
+
+The notification item accepts a `mirror` object. With `mirror`, MTMR shows every macOS notification in the notification area, with the icon of the app that sent it.
+
+```json
+"mirror": {
+  "stickyApps": ["com.microsoft.teams2", "com.microsoft.outlook"],
+  "stickySeconds": 600,
+  "lobApps": ["net.kovidgoyal.kitty"],
+  "ignoreApps": []
+}
+```
+
+- `stickyApps`: notifications from these apps stay `stickySeconds` (default 600 = 10 minutes). Other notifications stay `defaultSeconds`.
+- `lobApps`: notifications from these apps show the lob icon. lob sessions send their notifications through kitty.
+- `ignoreApps`: MTMR does not show notifications from these apps.
+- The text is "title: body".
+- Source: the Notification Center database (`$(getconf DARWIN_USER_DIR)com.apple.notificationcenter/db2/db`). MTMR reads the database once a second, read-only. On macOS 14.7.6, the read needs no Full Disk Access.
+
+## Notification queue
+
+- A new notification shows at once.
+- Each notification counts down on its own. A 10-minute notification never holds back a newer one.
+- When the shown notification expires, the newest remaining one shows.
+- Swipe left or right to move through all live notifications. A touch on the area pauses every countdown.

@@ -1,19 +1,23 @@
 import Cocoa
 
+/// The notification queue. The newest entry shows on arrival; every entry counts down on its own, so a long
+/// entry (e.g. a 10-minute Outlook reminder) never holds back newer ones. Swipes move through all live entries
+/// (oldest → newest, wrapping). Touching the area pauses every countdown.
 final class NotificationStore {
     static let shared = NotificationStore()
     static let changed = Notification.Name("MTMRNotificationChanged")
 
     private struct Entry {
         let text: String
-        var remainingSeconds: Double
+        let icon: NSImage?
+        /// systemUptime at which the entry expires (moved later by pauses).
+        var deadline: Double
     }
 
     private var entries: [Entry] = []
     private var selectedIndex = 0
     private var timer: Timer?
-    private var startedAt: Double?
-    private var paused = false
+    private var pausedAt: Double?
     var defaultSeconds: Double = 8
     var welcome: String?
 
@@ -21,15 +25,20 @@ final class NotificationStore {
         return entries.isEmpty ? "" : entries[selectedIndex].text
     }
 
-    func notify(text: String, seconds: Double?) -> Bool {
+    var icon: NSImage? {
+        return entries.isEmpty ? nil : entries[selectedIndex].icon
+    }
+
+    private var now: Double { return ProcessInfo.processInfo.systemUptime }
+
+    func notify(text: String, seconds: Double?, icon: NSImage? = nil) -> Bool {
         dispatchPrecondition(condition: .onQueue(.main))
         guard entries.count < 256 else { return false }
-        entries.append(Entry(text: text, remainingSeconds: seconds ?? defaultSeconds))
-        if entries.count == 1 {
-            selectedIndex = 0
-            scheduleExpiry()
-            publish()
-        }
+        // While paused, the countdown starts from the pause moment so resume() shifts it like the others.
+        entries.append(Entry(text: text, icon: icon, deadline: (pausedAt ?? now) + (seconds ?? defaultSeconds)))
+        selectedIndex = entries.count - 1
+        scheduleExpiry()
+        publish()
         return true
     }
 
@@ -45,7 +54,6 @@ final class NotificationStore {
         dispatchPrecondition(condition: .onQueue(.main))
         timer?.invalidate()
         timer = nil
-        startedAt = nil
         entries.removeAll()
         selectedIndex = 0
         publish()
@@ -53,13 +61,10 @@ final class NotificationStore {
 
     func pause() {
         dispatchPrecondition(condition: .onQueue(.main))
-        paused = true
-        if let startedAt = startedAt, !entries.isEmpty {
-            entries[selectedIndex].remainingSeconds = max(0, entries[selectedIndex].remainingSeconds - (ProcessInfo.processInfo.systemUptime - startedAt))
-        }
+        guard pausedAt == nil else { return }
+        pausedAt = now
         timer?.invalidate()
         timer = nil
-        startedAt = nil
     }
 
     func move(by offset: Int) {
@@ -72,18 +77,19 @@ final class NotificationStore {
 
     func resume() {
         dispatchPrecondition(condition: .onQueue(.main))
-        paused = false
+        guard let pausedAt = pausedAt else { return }
+        let pausedFor = now - pausedAt
+        self.pausedAt = nil
+        for index in entries.indices { entries[index].deadline += pausedFor }
         scheduleExpiry()
     }
 
     private func scheduleExpiry() {
         timer?.invalidate()
         timer = nil
-        startedAt = nil
-        guard !paused else { return }
-        guard !entries.isEmpty else { return }
-        startedAt = ProcessInfo.processInfo.systemUptime
-        let expiryTimer = Timer(timeInterval: max(0.001, entries[selectedIndex].remainingSeconds), repeats: false) { [weak self] _ in
+        guard pausedAt == nil else { return }
+        guard let next = entries.map({ $0.deadline }).min() else { return }
+        let expiryTimer = Timer(timeInterval: max(0.001, next - now), repeats: false) { [weak self] _ in
             self?.expire()
         }
         timer = expiryTimer
@@ -92,8 +98,12 @@ final class NotificationStore {
 
     private func expire() {
         guard !entries.isEmpty else { return }
-        entries.remove(at: selectedIndex)
-        selectedIndex = min(selectedIndex, max(0, entries.count - 1))
+        let current = now
+        let selectedSurvives = entries[selectedIndex].deadline > current
+        let selectedBefore = entries[..<selectedIndex].filter { $0.deadline > current }.count
+        entries.removeAll { $0.deadline <= current }
+        // Keep showing the same entry if it is still live; otherwise show the newest remaining one.
+        selectedIndex = selectedSurvives ? selectedBefore : max(0, entries.count - 1)
         scheduleExpiry()
         publish()
     }
@@ -114,9 +124,9 @@ final class NotificationTouchBarItem: NSCustomTouchBarItem {
         NotificationStore.shared.welcome = self.layoutOptions.welcome
         let notificationView = NotificationAreaView(maxChars: maxChars, fadeSeconds: self.layoutOptions.fadeSeconds)
         view = notificationView
-        notificationView.show(text: NotificationStore.shared.text)
+        notificationView.show(text: NotificationStore.shared.text, icon: NotificationStore.shared.icon)
         observer = NotificationCenter.default.addObserver(forName: NotificationStore.changed, object: nil, queue: .main) { [weak notificationView] _ in
-            notificationView?.show(text: NotificationStore.shared.text)
+            notificationView?.show(text: NotificationStore.shared.text, icon: NotificationStore.shared.icon)
         }
     }
 

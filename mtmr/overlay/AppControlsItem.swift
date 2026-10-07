@@ -19,6 +19,7 @@ enum AppControlsRegistry {
         AppControlsMusicPanel.self,
         AppControlsCodePanel.self,
         AppControlsStatsPanel.self,
+        AppControlsLobPanel.self,
     ]
     static let fallbackId = AppControlsSystemPanel.id
 
@@ -28,13 +29,18 @@ enum AppControlsRegistry {
 }
 
 struct AppControlsOptions: Decodable, Equatable {
-    let panels: [String]
+    enum Side: String, Decodable { case left, right }
 
-    init(panels: [String] = AppControlsRegistry.panels.map { $0.id }) {
+    let panels: [String]
+    /// Which edge of the zone holds the switcher button.
+    let switcher: Side
+
+    init(panels: [String] = AppControlsRegistry.panels.map { $0.id }, switcher: Side = .left) {
         self.panels = panels
+        self.switcher = switcher
     }
 
-    private enum CodingKeys: String, CodingKey { case panels }
+    private enum CodingKeys: String, CodingKey { case panels, switcher }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -45,7 +51,8 @@ struct AppControlsOptions: Decodable, Equatable {
         guard !panels.isEmpty else {
             throw DecodingError.dataCorruptedError(forKey: .panels, in: container, debugDescription: "panels must not be empty")
         }
-        self.init(panels: panels)
+        let switcher = try container.decodeIfPresent(Side.self, forKey: .switcher) ?? .left
+        self.init(panels: panels, switcher: switcher)
     }
 }
 
@@ -139,6 +146,8 @@ final class AppControlsView: NSView {
             self?.showSelectedPanel(animated: true)
         }
         showSelectedPanel(animated: false)
+        // lob states depend on transitions (working → finished), so watch from load, not only while lob shows.
+        if options.panels.contains(AppControlsLobPanel.id) { LobMonitor.shared.start() }
     }
 
     required init?(coder: NSCoder) {
@@ -153,8 +162,16 @@ final class AppControlsView: NSView {
 
     override func layout() {
         super.layout()
-        switcher.frame = NSRect(x: 0, y: 0, width: Self.switcherWidth, height: bounds.height)
-        let contentFrame = NSRect(x: Self.switcherWidth + AppControlsStyle.gap, y: 0, width: max(0, bounds.width - Self.switcherWidth - AppControlsStyle.gap), height: bounds.height)
+        let contentWidth = max(0, bounds.width - Self.switcherWidth - AppControlsStyle.gap)
+        let contentFrame: NSRect
+        switch options.switcher {
+        case .left:
+            switcher.frame = NSRect(x: 0, y: 0, width: Self.switcherWidth, height: bounds.height)
+            contentFrame = NSRect(x: Self.switcherWidth + AppControlsStyle.gap, y: 0, width: contentWidth, height: bounds.height)
+        case .right:
+            switcher.frame = NSRect(x: bounds.width - Self.switcherWidth, y: 0, width: Self.switcherWidth, height: bounds.height)
+            contentFrame = NSRect(x: 0, y: 0, width: contentWidth, height: bounds.height)
+        }
         content.frame = contentFrame
         picker.frame = contentFrame
         panel?.frame = content.bounds

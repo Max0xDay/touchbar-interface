@@ -5,24 +5,25 @@ App Controls is the zone on the right end of the bar. The zone shows one **panel
 The user picks the panel. The panel does not follow the frontmost app. The choice stays the same after a restart or a layout reload.
 
 ```
-[✕][gap][ left buttons ] |  [ notification area ]  | [SW][ panel ............................ ]
-                                                      └─ switcher button: icon of the current panel
+[✕][gap][ left buttons ] |  [ notification area ]  | [ panel ............................ ][SW]
+                                                        switcher button: icon of the current panel ─┘
 ```
 
 ## Panels
 
 | Panel | ID | Icon | Contents | Tap |
 |---|---|---|---|---|
-| System | `system` | "SY" badge | Large time, date, and one bullet line: ISO week and battery level. | Nothing |
+| System | `system` | Clock tile (graphite tile, white clock at 10:10) | Three columns: time with seconds, weekday over date, and a bullet list with the ISO week and battery level. | Nothing |
 | YouTube Music | `ytmusic` | Pear app icon | Cover, title, artist, a thin progress line, and the previous / play-pause / next buttons. | Cover or title: brings Pear to the front, or opens Pear if it does not run. |
-| VS Code | `vscode` | VS Code icon | One chip for each open window (project name). The focused window has the accent colour. A command button (⌘) is on the right. | Chip: raises that window. Command button: opens the Command Palette (⇧⌘P). |
-| Stats | `stats` | Stats app icon | CPU %, RAM %, and CPU temperature, each with a meter. | Opens the Stats app. |
+| VS Code | `vscode` | VS Code icon | A window toggle, a Run button (▶), and a command button (⌘). The window toggle shows the current window in the colour of that window: a colour stripe, the project name, the open file, and one coloured dot for each window. The current window has the large dot with a white ring. | Window toggle: goes to the next window. If VS Code is not in front, the first tap brings the current window to the front. Run: presses F5 (Run > Start Debugging). Command button: opens the Command Palette (⇧⌘P). |
+| Stats | `stats` | Stats app icon | Five cells: CPU (total and one bar for each core, efficiency cores then performance cores), GPU, MEM (% and GB used), TEMP (CPU temperature), and NET (download and upload rate). | Opens the Stats app. |
+| lob | `lob` | Lob tile (a ball on a dashed arc) | One chip for each lob session: a spinner while Claude works, a pulsing green dot when Claude finishes and waits for a reply, a grey dot when idle. | Nothing |
 
 If no panel is selected, App Controls shows the System panel.
 
 ## Use the switcher
 
-1. Tap the switcher button (the icon on the left of the zone).
+1. Tap the switcher button (the app icon at the right edge of the zone).
 2. A row of panel icons replaces the panel. The current panel has the accent colour.
 3. Tap a panel icon to select that panel.
 
@@ -30,7 +31,9 @@ To close the row without a change, tap the switcher button (✕) again. The row 
 
 ## Colours
 
-- All buttons use the standard grey Touch Bar style.
+- All buttons use the standard grey Touch Bar style. The switcher has no frame: the app icon fills the full bar height (30 pt).
+- All glyph icons use one fixed 18 pt box, centred on the same line (`TouchBarIcon.swift`). App icons in the switcher row use 24 pt.
+- The Touch Bar ignores the button tint setting (`contentTintColor`). Each icon has its colour drawn into the image.
 - The system accent colour marks the selected item.
 - Green, orange, and red show state only. For example, a meter turns orange above 70 % and red above 90 %. The temperature meter turns orange at 80 °C and red at 92 °C.
 
@@ -38,11 +41,24 @@ To close the row without a change, tap the switcher button (✕) again. The row 
 
 - **YouTube Music:** the player is Pear Desktop (bundle ID `com.github.th-ch.youtube-music`). The panel reads macOS Now Playing through the private MediaRemote framework. Pear publishes title, artist, cover, and play state there. The panel needs no Pear plugin. The Pear API Server plugin stays off.
 - **Play controls:** the buttons send commands to the Now Playing app. If a different app plays media at that time, the buttons control that app. If MediaRemote is not available, the buttons send the media keys.
-- **VS Code windows:** the panel reads window titles through the Accessibility API. MTMR already has the Accessibility permission. A title such as "file.swift — project" shows as "project".
+- **VS Code windows:** the panel reads the title and the open document of each window through the Accessibility API. MTMR already has the Accessibility permission. A title such as "file.swift — project" gives the project name "project".
+- **Window colours:** the colour key is the project folder path. The panel takes the path of the open document up to the folder with the project name, for example `/Users/maxday/Workspace/projects/maxlaptopmtmr`. If the window has no document, the key is the project name. A stable hash of the key selects one of eight system colours (blue, purple, pink, orange, teal, green, indigo, yellow). Red is not in the list, because red means "muted" or "problem" on this bar. The colour of a window stays the same when you change files and after a restart. Two projects can get the same colour.
+- **Window order:** the panel sorts the windows by folder path, so the order stays the same when the focus changes.
 - **Stats:** the Stats app has no Application Programming Interface (API). The panel reads the same data directly:
   - CPU: the load of all cores between two refreshes.
   - RAM: app memory, wired memory, and compressed memory, divided by the physical memory. Activity Monitor calls this value "Memory Used".
   - Temperature: the mean of the performance-core and efficiency-core sensors (`pACC` / `eACC`). These are the same sensors that the Stats app uses on M1.
+  - GPU: "Device Utilization %" of the graphics accelerator (IOAccelerator).
+  - NET: the byte counters of all network interfaces except loopback, between two refreshes.
+
+## lob sessions
+
+- The panel lists every tmux session with a lob name: `<project>-NN`, for example `maxlaptopmtmr-01`. The chip shows `maxlaptopmtmr`; session `-02` shows `maxlaptopmtmr 2`.
+- **Working:** Claude shows a spinner line above the prompt, for example "✢ Tinkering… (thought for 2s)". The monitor looks for a glyph, a capitalised word, and "…" in the 12 lines above the "❯" prompt.
+- **Finished:** the session was working and stopped. The chip stays green until Claude works again, or for 30 minutes.
+- **Idle:** all other sessions.
+- The monitor reads tmux every 1.5 s. It starts when the zone loads, so it sees a finish while another panel shows.
+- lob needs no change. A tap on a chip does nothing.
 
 ## Layout entry
 
@@ -51,12 +67,14 @@ To close the row without a change, tap the switcher button (✕) again. The row 
   "type": "appControls",
   "align": "right",
   "width": 340,
-  "panels": ["system", "ytmusic", "vscode", "stats"]
+  "switcher": "right",
+  "panels": ["system", "lob", "ytmusic", "vscode", "stats"]
 }
 ```
 
+- `switcher` is optional: `"right"` (the actual layout) or `"left"` (the default).
 - `panels` is optional. The list sets the order in the switcher. An unknown ID makes MTMR reject the layout.
-- `width` sets the width of the zone. The solver never shrinks right-hand items. Keep the width at or below `(1085 − notification minWidth − 2 × 16) / 2`. With `maxChars: 36`, the limit is 347.
+- `width` sets the width of the zone. The solver never shrinks right-hand items. Our bar is 1004 pt wide (measured). Keep the width at or below `(1004 − notification minWidth − 2 × 16) / 2`. With `maxChars: 36`, the limit is 307. At 340, the notification area is 292 pt, below its minimum, and MTMR logs a layout warning.
 
 ## Socket commands
 
@@ -102,9 +120,12 @@ Follow these rules for a panel:
 | File | Contents |
 |---|---|
 | `mtmr/overlay/AppControlsItem.swift` | Panel protocol, registry, selection, zone view, switcher |
-| `mtmr/overlay/AppControlsKit.swift` | Shared style, app helpers, meter view, text badge |
+| `mtmr/overlay/AppControlsKit.swift` | Shared style, app helpers, key presses, meter view, text badge |
+| `mtmr/overlay/TouchBarIcon.swift` | One icon size for the whole bar; colour drawn into the icon |
 | `mtmr/overlay/AppControlsSystemPanel.swift` | System panel |
 | `mtmr/overlay/AppControlsMusicPanel.swift` | `NowPlaying` (MediaRemote) and the YouTube Music panel |
 | `mtmr/overlay/AppControlsCodePanel.swift` | VS Code panel |
 | `mtmr/overlay/AppControlsStatsPanel.swift` | Stats panel, `SystemMetrics`, temperature sensors |
+| `mtmr/overlay/AppControlsLobPanel.swift` | lob panel, `LobMonitor`, session chips, lob icon |
+| `mtmr/overlay/NotificationMirror.swift` | Mirror of macOS notifications into the notification area |
 | `mtmr/patches/0005-app-controls-watchers-welcome.patch` | `appControls` item type, watchers, welcome notification |

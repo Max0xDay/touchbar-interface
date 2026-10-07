@@ -34,6 +34,18 @@ struct NotificationAreaTests {
             precondition(label.stringValue == NotificationTextMetrics.truncated(String(repeating: "a", count: 60), capacity: capacity))
             precondition(area.hitTest(NSPoint(x: width / 2, y: 15)) === area, "Label must not swallow direct touches")
         }
+        let withIcon = NotificationAreaView(maxChars: 40, fadeSeconds: 0)
+        withIcon.frame = NSRect(x: 0, y: 0, width: 292, height: 30)
+        withIcon.layoutSubtreeIfNeeded()
+        withIcon.show(text: "Standup in 10 minutes", icon: NSImage(size: NSSize(width: 18, height: 18)))
+        guard let iconView = withIcon.subviews.compactMap({ $0 as? NSImageView }).first else { preconditionFailure("Missing icon view") }
+        let iconLabel = label(in: withIcon)
+        precondition(iconView.image != nil && iconView.frame.width == 18, "The entry's icon shows at 18 pt")
+        precondition(iconLabel.frame.minX - iconView.frame.maxX == 6, "The icon sits right beside the text")
+        precondition(abs((iconView.frame.minX + iconLabel.frame.maxX) / 2 - withIcon.bounds.midX) < 0.5, "Icon and text centre as one group")
+        precondition(iconLabel.stringValue == "Standup in 10 minutes")
+        withIcon.show(text: "no icon")
+        precondition(iconView.image == nil && label(in: withIcon).frame.width == 292 - 24, "Without an icon the label spans the area again")
         precondition(area.allowedTouchTypes == .direct)
         precondition(area.wantsRestingTouches)
         let item = NotificationTouchBarItem(identifier: NSTouchBarItem.Identifier("capacity-test"), maxChars: 20, defaultSeconds: 5)

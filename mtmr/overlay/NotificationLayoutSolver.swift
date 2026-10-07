@@ -7,10 +7,13 @@ struct NotificationLayoutOptions: Decodable, Equatable {
     let fadeSeconds: Double
     /// Shown as a notification whenever the bar is brought up (launch, layout load, back from Apple's bar).
     let welcome: String?
+    /// Mirror macOS notifications into the area (see NotificationMirror.swift); nil = off.
+    let mirror: NotificationMirrorOptions?
 
-    init(padding: Double = 16, minWidth: Double? = nil, maxWidth: Double? = nil, fadeSeconds: Double = 0.35, maxChars: Int = 40, welcome: String? = nil) {
+    init(padding: Double = 16, minWidth: Double? = nil, maxWidth: Double? = nil, fadeSeconds: Double = 0.35, maxChars: Int = 40, welcome: String? = nil, mirror: NotificationMirrorOptions? = nil) {
         self.fadeSeconds = fadeSeconds
         self.welcome = welcome
+        self.mirror = mirror
         self.padding = padding.rounded()
         self.minWidth = (minWidth ?? NotificationTextMetrics.preferredWidth(maxChars: maxChars)).rounded(.up)
         self.maxWidth = maxWidth?.rounded(.down)
@@ -23,6 +26,7 @@ struct NotificationLayoutOptions: Decodable, Equatable {
         case fadeSeconds
         case maxChars
         case welcome
+        case mirror
     }
 
     init(from decoder: Decoder) throws {
@@ -64,7 +68,32 @@ struct NotificationLayoutOptions: Decodable, Equatable {
             throw DecodingError.dataCorruptedError(forKey: .fadeSeconds, in: container, debugDescription: "fadeSeconds must be between 0 and 2")
         }
         let welcome = try container.decodeIfPresent(String.self, forKey: .welcome)
-        self.init(padding: padding, minWidth: minWidth, maxWidth: maxWidth, fadeSeconds: fadeSeconds, welcome: welcome)
+        let mirror = try container.decodeIfPresent(NotificationMirrorOptions.self, forKey: .mirror)
+        self.init(padding: padding, minWidth: minWidth, maxWidth: maxWidth, fadeSeconds: fadeSeconds, welcome: welcome, mirror: mirror)
+    }
+}
+
+/// Layout options for mirroring macOS notifications. Kept here (pure data) so the solver tests compile alone.
+/// App ids compare lower-cased, as Notification Center stores them.
+struct NotificationMirrorOptions: Decodable, Equatable {
+    /// Apps whose notifications stay `stickySeconds` instead of the default (Teams, Outlook).
+    let stickyApps: [String]
+    let stickySeconds: Double
+    /// Apps shown with the lob icon (lob sessions notify through kitty).
+    let lobApps: [String]
+    let ignoreApps: [String]
+
+    private enum CodingKeys: String, CodingKey { case stickyApps, stickySeconds, lobApps, ignoreApps }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        stickyApps = (try container.decodeIfPresent([String].self, forKey: .stickyApps) ?? []).map { $0.lowercased() }
+        stickySeconds = try container.decodeIfPresent(Double.self, forKey: .stickySeconds) ?? 600
+        guard stickySeconds.isFinite, stickySeconds > 0, stickySeconds <= 86400 else {
+            throw DecodingError.dataCorruptedError(forKey: .stickySeconds, in: container, debugDescription: "stickySeconds must be 0...86400")
+        }
+        lobApps = (try container.decodeIfPresent([String].self, forKey: .lobApps) ?? []).map { $0.lowercased() }
+        ignoreApps = (try container.decodeIfPresent([String].self, forKey: .ignoreApps) ?? []).map { $0.lowercased() }
     }
 }
 
