@@ -50,7 +50,7 @@ The notification item accepts a `mirror` object. With `mirror`, MTMR shows every
 - `stickyApps`: notifications from these apps stay `stickySeconds` (default 600 = 10 minutes). Other notifications stay `defaultSeconds`.
 - `lobApps`: notifications from these apps show the lob icon. lob sessions send their notifications through kitty.
 - `ignoreApps`: MTMR does not show notifications from these apps.
-- The text is "title: body".
+- If a notification has a title and a body, the bar shows two lines: the title as a heading, and the body smaller below. If it has only one of them, the bar shows one line.
 - Source: the Notification Center database (`$(getconf DARWIN_USER_DIR)com.apple.notificationcenter/db2/db`). MTMR reads the database once a second, read-only. On macOS 14.7.6, the read needs no Full Disk Access.
 
 ## Notification queue
@@ -59,3 +59,13 @@ The notification item accepts a `mirror` object. With `mirror`, MTMR shows every
 - Each notification counts down on its own. A 10-minute notification never holds back a newer one.
 - When the shown notification expires, the newest remaining one shows.
 - Swipe left or right to move through all live notifications. A touch on the area pauses every countdown.
+
+## Two-line notifications from scripts
+
+```bash
+bin/tbctl notify "Weekly sync" --title "Meeting joined" --app com.microsoft.teams2
+```
+
+- `--title` adds the heading line. The text then shows smaller below the heading.
+- `--app` shows the icon of that app.
+- `teams/teams-watch` sends this notification when you join a Teams call. The second line is the meeting title: the title of the Teams call window, without " | Microsoft Teams". `teams/teams-mute meeting` prints that title.

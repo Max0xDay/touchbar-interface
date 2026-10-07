@@ -17,7 +17,7 @@ The user picks the panel. The panel does not follow the frontmost app. The choic
 | YouTube Music | `ytmusic` | Pear app icon | Cover, title, artist, a thin progress line, and the previous / play-pause / next buttons. | Cover or title: brings Pear to the front, or opens Pear if it does not run. |
 | VS Code | `vscode` | VS Code icon | A window toggle, a Run button (▶), and a command button (⌘). The window toggle shows the current window in the colour of that window: a colour stripe, the project name, the open file, and one coloured dot for each window. The current window has the large dot with a white ring. | Window toggle: goes to the next window. If VS Code is not in front, the first tap brings the current window to the front. Run: presses F5 (Run > Start Debugging). Command button: opens the Command Palette (⇧⌘P). |
 | Stats | `stats` | Stats app icon | Five cells: CPU (total and one bar for each core, efficiency cores then performance cores), GPU, MEM (% and GB used), TEMP (CPU temperature), and NET (download and upload rate). | Opens the Stats app. |
-| lob | `lob` | Terminal tile (orange ">_" on black) | One chip for each lob session: a spinner while Claude works, a pulsing green dot when Claude finishes and waits for a reply, a grey dot when idle. | Nothing |
+| lob | `lob` | Terminal tile (orange ">_" on black) | One pill for each lob session: a blue spinner while Claude works, a slow purple arc while pi-delegate runs, a pulsing green dot when Claude finishes and waits for a reply, a grey dot when idle. Up to 3 sessions: one row. 4 to 6 sessions: two rows of three. | Nothing |
 
 If no panel is selected, App Controls shows the System panel.
 
@@ -53,8 +53,10 @@ To close the row without a change, tap the switcher button (✕) again. The row 
 
 ## lob sessions
 
-- The panel lists every tmux session with a lob name: `<project>-NN`, for example `maxlaptopmtmr-01`. The chip shows `maxlaptopmtmr`; session `-02` shows `maxlaptopmtmr 2`.
-- **Working:** Claude shows a spinner line above the prompt, for example "✢ Tinkering… (thought for 2s)". The monitor looks for a glyph, a capitalised word, and "…" in the 12 lines above the "❯" prompt.
+- The panel finds lob sessions from the running Claude processes. lob starts each one as `claude … Active project: <name>. …`. The pill shows the tmux session name without `-01` (`-02` shows as `<name> 2`).
+- An older tmux server can lose its socket when a newer server starts. tmux commands then cannot reach its sessions. The panel still lists those sessions, because it starts from the process list.
+- **Working:** Claude shows a spinner line above the prompt, for example "✢ Tinkering… (thought for 2s)". The monitor looks for a glyph, a capitalised word, and "…" in the 12 lines above the "❯" prompt. If tmux cannot reach the session, the monitor uses CPU instead: 8 % or more over the last 1.5 s means working.
+- **Delegate:** a process that runs `pi-delegate.py --tier` is somewhere below the session's Claude process. Delegate takes priority over working.
 - **Finished:** the session was working and stopped. The chip stays green until Claude works again, or for 30 minutes.
 - **Idle:** all other sessions.
 - The monitor reads tmux every 1.5 s. It starts when the zone loads, so it sees a finish while another panel shows.

@@ -1,4 +1,4 @@
-import Foundation
+import Cocoa
 import Darwin
 
 final class NotificationSocketServer {
