@@ -1,7 +1,7 @@
 import Cocoa
 
 /// lob: one pill per lob session, animated by state: working = blue spinning arc, delegate = purple slow orbit
-/// (a pi-delegate run is in progress), finished = pulsing green (awaiting your reply), idle = still grey dot. Up to 3 sessions: one row; 4–6: two rows of three; more scroll sideways.
+/// (a pi-delegate run is in progress), finished = pulsing green (awaiting your reply), idle = still grey dot. Always a 2-row grid with 4-session cells: 3 sessions leave the top-left empty, 1–2 stack in the left column, 5+ add columns and scroll sideways.
 /// Display only: taps do nothing (replies go through Claude remote control).
 final class AppControlsLobPanel: NSView, AppControlsPanel {
     static let id = "lob"
@@ -41,17 +41,20 @@ final class AppControlsLobPanel: NSView, AppControlsPanel {
     private func layoutPills() {
         let count = order.count
         guard count > 0 else { return }
-        let rows = count <= 3 ? 1 : 2
-        let columns = Int(ceil(Double(count) / Double(rows)))
-        let height = rows == 1 ? bounds.height : floor((bounds.height - Self.gap / 2) / 2)
+        // Always the 2 x 2 grid cell size. 3 sessions leave the top-left cell empty; 1–2 stack in the left column.
+        let columns = max(2, Int(ceil(Double(count) / 2)))
+        let single = count == 1
+        let height = single ? bounds.height : floor((bounds.height - Self.gap / 2) / 2)
         let width = max(88, floor((bounds.width - Self.gap * CGFloat(columns - 1)) / CGFloat(columns)))
+        let skip = count <= 2 ? 0 : columns * 2 - count
         for (index, pid) in order.enumerated() {
-            let row = index / columns
-            let column = index % columns
+            let slot = index + skip
+            let row = count <= 2 ? index : slot / columns
+            let column = count <= 2 ? 0 : slot % columns
             // Row 0 is the top row (AppKit's y grows upwards).
-            let y = rows == 1 ? 0 : (row == 0 ? bounds.height - height : 0)
+            let y = single ? 0 : (row == 0 ? bounds.height - height : 0)
             pills[pid]?.frame = NSRect(x: CGFloat(column) * (width + Self.gap), y: y, width: width, height: height)
-            pills[pid]?.compact = rows > 1
+            pills[pid]?.compact = !single
         }
         container.frame = NSRect(x: 0, y: 0, width: CGFloat(columns) * width + CGFloat(columns - 1) * Self.gap, height: bounds.height)
     }
