@@ -1,32 +1,57 @@
 import Cocoa
 
 /// Fan: mode button · curve graph (the slider in Custom) · temperature and RPM.
-/// ThermalForge's root daemon writes the SMC; the curves are ours (FanController). Tap the mode button to cycle
-/// Apple → Quiet → Cool → Max → Custom. In Custom, drag across the graph to set the fan speed.
+/// ThermalForge's root daemon writes the SMC; the curves are ours (FanController). Tap the mode button to open a
+/// row with all modes (current one in the accent colour); tap one to select it. The row closes after 6 s.
+/// In Custom, drag across the graph to set the fan speed.
 final class AppControlsFanPanel: NSView, AppControlsPanel {
     static let id = "fan"
     static let name = "Fan"
     static func icon() -> NSImage { return fanIcon(size: TouchBarIcon.appBox) }
     let refreshInterval: TimeInterval = 1
+    private static let pickerTimeout: TimeInterval = 6
 
-    private lazy var modeButton = AppControlsStyle.button(title: "", size: 12, target: self, action: #selector(cycleMode))
+    private lazy var modeButton = AppControlsStyle.button(title: "", size: 12, target: self, action: #selector(openPicker))
     private let graph = FanGraphView()
     private let readout = FanReadoutView()
+    private var picker: [NSButton] = []
+    private var pickerTimer: Timer?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         addSubview(modeButton)
         addSubview(graph)
         addSubview(readout)
+        for mode in FanController.Mode.allCases {
+            let button = AppControlsStyle.button(title: mode.title, size: 12, target: self, action: #selector(pickerChose(_:)))
+            button.identifier = NSUserInterfaceItemIdentifier(mode.rawValue)
+            button.isHidden = true
+            picker.append(button)
+            addSubview(button)
+        }
     }
 
     required init?(coder: NSCoder) {
         return nil
     }
 
+    deinit {
+        pickerTimer?.invalidate()
+    }
+
     override func layout() {
         super.layout()
         AppControlsStyle.row([(modeButton, 64), (graph, nil), (readout, 54)], in: bounds)
+        // Mode row: equal widths across the whole panel.
+        let width = floor((bounds.width - 4 * CGFloat(picker.count - 1)) / CGFloat(picker.count))
+        for (index, button) in picker.enumerated() {
+            button.frame = NSRect(x: CGFloat(index) * (width + 4), y: 0, width: width, height: bounds.height)
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { closePicker() }
     }
 
     func refresh() {
@@ -34,11 +59,37 @@ final class AppControlsFanPanel: NSView, AppControlsPanel {
         modeButton.title = state.mode.title
         graph.state = state
         readout.state = state
+        for button in picker {
+            button.bezelColor = button.identifier?.rawValue == state.mode.rawValue ? AppControlsStyle.selected : nil
+        }
     }
 
-    @objc private func cycleMode() {
-        FanController.shared.cycleMode()
+    @objc private func openPicker() {
         refresh()
+        showPicker(true)
+        pickerTimer?.invalidate()
+        pickerTimer = Timer.scheduledTimer(withTimeInterval: Self.pickerTimeout, repeats: false) { [weak self] _ in
+            self?.closePicker()
+        }
+    }
+
+    @objc private func pickerChose(_ sender: NSButton) {
+        if let raw = sender.identifier?.rawValue, let mode = FanController.Mode(rawValue: raw) {
+            FanController.shared.setMode(mode)
+        }
+        closePicker()
+        refresh()
+    }
+
+    private func closePicker() {
+        pickerTimer?.invalidate()
+        pickerTimer = nil
+        showPicker(false)
+    }
+
+    private func showPicker(_ shown: Bool) {
+        for button in picker { button.isHidden = !shown }
+        for view in [modeButton, graph, readout] as [NSView] { view.isHidden = shown }
     }
 }
 
