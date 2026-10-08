@@ -1,0 +1,141 @@
+--- a/BasicView.swift
++++ b/BasicView.swift
+@@ -21,17 +21,17 @@
+     var legacyPrevPositions: [Int: CGFloat] = [2:0, 3:0, 4:0]
+     var legacyGesturesEnabled = false
+ 
+-    init(identifier: NSTouchBarItem.Identifier, items: [NSTouchBarItem], swipeItems: [SwipeItem]) {
++    init(identifier: NSTouchBarItem.Identifier, items: [NSTouchBarItem], swipeItems: [SwipeItem], itemDefinitions: [NSTouchBarItem.Identifier: BarItemDefinition]) {
+         super.init(identifier: identifier)
+         self.swipeItems = swipeItems
+-        let views = items.compactMap { $0.view }
+-        let stackView = NSStackView(views: views)
+-        stackView.spacing = 8
+-        stackView.orientation = .horizontal
+-        view = stackView
+-        if views.contains(where: { $0 is NotificationAreaView }) {
+-            stackView.distribution = .fill
+-            stackView.setContentHuggingPriority(.init(1), for: .horizontal)
++        if let notification = items.first(where: { $0 is NotificationTouchBarItem }) as? NotificationTouchBarItem {
++            view = NotificationLayoutView(items: items, definitions: itemDefinitions, notification: notification)
++        } else {
++            let views = items.compactMap { $0.view }
++            let stackView = NSStackView(views: views)
++            stackView.spacing = 8
++            stackView.orientation = .horizontal
++            view = stackView
+         }
+ 
+         twofingers = NSPanGestureRecognizer(target: self, action: #selector(twofingersHandler(_:)))
+--- a/ItemsParsing.swift
++++ b/ItemsParsing.swift
+@@ -9,6 +9,7 @@
+ 
+ struct BarItemDefinition: Decodable {
+     let type: ItemType
++    let isExitButton: Bool
+     let actions: [Action]
+     let legacyAction: LegacyActionType
+     let legacyLongAction: LegacyLongActionType
+@@ -19,8 +20,9 @@
+         case actions
+     }
+ 
+-    init(type: ItemType, actions: [Action], action: LegacyActionType, legacyLongAction: LegacyLongActionType, additionalParameters: [GeneralParameters.CodingKeys: GeneralParameter]) {
++    init(type: ItemType, actions: [Action], action: LegacyActionType, legacyLongAction: LegacyLongActionType, additionalParameters: [GeneralParameters.CodingKeys: GeneralParameter], isExitButton: Bool = false) {
+         self.type = type
++        self.isExitButton = isExitButton
+         self.actions = actions
+         self.legacyAction = action
+         self.legacyLongAction = legacyLongAction
+@@ -37,7 +39,7 @@
+         if let result = try? parametersDecoder(decoder),
+             case let (itemType, actions, action, longAction, parameters) = result {
+             parameters.forEach { additionalParameters[$0] = $1 }
+-            self.init(type: itemType, actions: actions, action: action, legacyLongAction: longAction, additionalParameters: additionalParameters)
++            self.init(type: itemType, actions: actions, action: action, legacyLongAction: longAction, additionalParameters: additionalParameters, isExitButton: type == "exitTouchbar")
+         } else {
+             self.init(type: .staticButton(title: "unknown"), actions: [], action: .none, legacyLongAction: .none, additionalParameters: additionalParameters)
+         }
+@@ -256,7 +258,7 @@
+ }
+ 
+ enum ItemType: Decodable {
+-    case notification(maxChars: Int, defaultSeconds: Double)
++    case notification(maxChars: Int, defaultSeconds: Double, layoutOptions: NotificationLayoutOptions)
+     case staticButton(title: String)
+     case appleScriptTitledButton(source: SourceProtocol, refreshInterval: Double, alternativeImages: [String: SourceProtocol])
+     case shellScriptTitledButton(source: SourceProtocol, refreshInterval: Double)
+@@ -357,7 +359,14 @@
+             guard defaultSeconds <= 86400 else {
+                 throw DecodingError.dataCorruptedError(forKey: .defaultSeconds, in: container, debugDescription: "defaultSeconds must not exceed 86400")
+             }
+-            self = .notification(maxChars: maxChars, defaultSeconds: defaultSeconds)
++            let layoutOptions: NotificationLayoutOptions
++            do {
++                layoutOptions = try NotificationLayoutOptions(from: decoder)
++            } catch {
++                NSLog("MTMR notification layout options rejected: %@", String(describing: error))
++                throw error
++            }
++            self = .notification(maxChars: maxChars, defaultSeconds: defaultSeconds, layoutOptions: layoutOptions)
+ 
+         case .appleScriptTitledButton:
+             let source = try container.decode(Source.self, forKey: .source)
+@@ -672,6 +681,7 @@
+ 
+ enum GeneralParameter {
+     case width(_: CGFloat)
++    case minWidth(_: CGFloat)
+     case image(source: SourceProtocol)
+     case align(_: Align)
+     case bordered(_: Bool)
+@@ -685,6 +695,7 @@
+ 
+     enum CodingKeys: String, CodingKey {
+         case width
++        case minWidth
+         case image
+         case align
+         case bordered
+@@ -701,6 +712,18 @@
+             result[.width] = .width(value)
+         }
+ 
++        do {
++            if let value = try container.decodeIfPresent(CGFloat.self, forKey: .minWidth) {
++                guard value >= 0 else {
++                    throw DecodingError.dataCorruptedError(forKey: .minWidth, in: container, debugDescription: "minWidth must not be negative")
++                }
++                result[.minWidth] = .minWidth(value)
++            }
++        } catch {
++            NSLog("MTMR item minWidth rejected: %@", String(describing: error))
++            throw error
++        }
++
+         if let imageSource = try container.decodeIfPresent(Source.self, forKey: .image) {
+             result[.image] = .image(source: imageSource)
+         }
+--- a/TouchBarController.swift
++++ b/TouchBarController.swift
+@@ -202,7 +202,7 @@
+             items[identifier]
+         })
+ 
+-        basicView = BasicView(identifier: basicViewIdentifier, items:leftItems + [centerArea] + rightItems, swipeItems: swipeItems)
++        basicView = BasicView(identifier: basicViewIdentifier, items:leftItems + [centerArea] + rightItems, swipeItems: swipeItems, itemDefinitions: itemDefinitions)
+         basicView?.legacyGesturesEnabled = AppSettings.multitouchGestures
+     }
+ 
+@@ -352,8 +352,8 @@
+     func createItem(forIdentifier identifier: NSTouchBarItem.Identifier, definition item: BarItemDefinition) -> NSTouchBarItem? {
+         var barItem: NSTouchBarItem!
+         switch item.type {
+-        case let .notification(maxChars: maxChars, defaultSeconds: defaultSeconds):
+-            barItem = NotificationTouchBarItem(identifier: identifier, maxChars: maxChars, defaultSeconds: defaultSeconds)
++        case let .notification(maxChars: maxChars, defaultSeconds: defaultSeconds, layoutOptions: layoutOptions):
++            barItem = NotificationTouchBarItem(identifier: identifier, maxChars: maxChars, defaultSeconds: defaultSeconds, layoutOptions: layoutOptions)
+         case let .staticButton(title: title):
+             barItem = CustomButtonTouchBarItem(identifier: identifier, title: title)
+         case let .appleScriptTitledButton(source: source, refreshInterval: interval, alternativeImages: alternativeImages):

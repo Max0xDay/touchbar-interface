@@ -1,0 +1,12 @@
+#!/bin/bash
+# Tap handler for the teams-camera button: toggles the Teams camera and repaints the button at once
+# (teams-watch --device camera would catch up within a second anyway). Not in a call: does nothing.
+set -euo pipefail
+scriptDirectory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+tbctl="${scriptDirectory}/../bin/tbctl"
+
+state="$("${scriptDirectory}/teams-mute" camera-toggle 2>/dev/null)" || exit 0
+case "${state}" in
+  on)  "${tbctl}" button teams-camera --icon video.fill --tint '#34c759' --show ;;
+  off) "${tbctl}" button teams-camera --icon video.slash.fill --tint '#ff3b30' --show ;;
+esac

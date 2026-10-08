@@ -1,0 +1,230 @@
+#!/usr/bin/env python3
+"""Push notifications to MTMR (Python 3 standard library only).
+
+Protocol: AF_UNIX/SOCK_STREAM, one UTF-8 JSON object per newline, at most
+4096 bytes excluding newline. Commands: {"cmd":"notify","text":"...",
+"seconds":5,"title":"Heading"} (seconds and title optional; seconds positive,
+<=86400; a title makes two lines: heading, then text smaller), {"cmd":"clear"},
+{"cmd":"button",...}, {"cmd":"buttons"}, {"cmd":"app","id":"stats"}, {"cmd":"apps"},
+{"cmd":"fan","mode":"cool","percent":40} (mode and percent optional).
+Each command gets {"ok":true} or {"ok":false,"error":"..."} plus newline.
+Unknown fields are reserved for extensions; unknown commands are rejected.
+Default socket: ~/Library/Application Support/MTMR/mtmr.sock (mode 0600).
+`tbctl layout [NAME]` is local, not a socket command: it copies layouts/NAME.json
+(${REPO} -> this repository) over the live items.json, backing up the old one first.
+--socket PATH overrides it for testing. --dry-run never connects.
+Exit: 0 success, 3 missing/refused socket, 2 usage, 1 server/transport error.
+Five-second timeout; no automatic retry, to avoid duplicate notifications.
+"""
+
+import argparse
+from datetime import datetime
+import errno
+import json
+import math
+import re
+from pathlib import Path
+import socket
+import sys
+
+
+def parseArguments():
+    sharedOptions = argparse.ArgumentParser(add_help=False)
+    sharedOptions.add_argument("--dry-run", action="store_true", default=argparse.SUPPRESS)
+    sharedOptions.add_argument("--socket", metavar="PATH", default=argparse.SUPPRESS)
+    parser = argparse.ArgumentParser(description=__doc__, parents=[sharedOptions])
+    commands = parser.add_subparsers(dest="command", required=True)
+    notificationParser = commands.add_parser("notify", parents=[sharedOptions])
+    notificationParser.add_argument("text")
+    notificationParser.add_argument("--seconds", type=float)
+    notificationParser.add_argument("--title", help="heading line; TEXT then shows smaller below it")
+    notificationParser.add_argument("--app", metavar="BUNDLE_ID", help="show this app's icon, e.g. com.microsoft.teams2")
+    commands.add_parser("clear", parents=[sharedOptions])
+    commands.add_parser("buttons", parents=[sharedOptions])
+    appParser = commands.add_parser("app", parents=[sharedOptions], help="select an App Controls panel (no ID: list them)")
+    appParser.add_argument("id", nargs="?")
+    fanParser = commands.add_parser("fan", parents=[sharedOptions], help="show or set the fan mode (apple, quiet, cool, max, custom)")
+    fanParser.add_argument("mode", nargs="?", choices=["apple", "quiet", "cool", "max", "custom"])
+    fanParser.add_argument("--percent", type=float, help="Custom fan speed, 0-100")
+    layoutParser = commands.add_parser("layout", parents=[sharedOptions], help="switch the live layout (no NAME: show the active one)")
+    layoutParser.add_argument("name", nargs="?")
+    buttonParser = commands.add_parser("button", parents=[sharedOptions])
+    buttonParser.add_argument("id")
+    icons = buttonParser.add_mutually_exclusive_group()
+    icons.add_argument("--icon")
+    icons.add_argument("--icon-path")
+    buttonParser.add_argument("--tint")
+    buttonParser.add_argument("--background")
+    visibility = buttonParser.add_mutually_exclusive_group()
+    visibility.add_argument("--hide", action="store_true")
+    visibility.add_argument("--show", action="store_true")
+    arguments = parser.parse_args()
+    command = {"cmd": arguments.command}
+    if arguments.command == "app":
+        command = {"cmd": "app", "id": arguments.id} if arguments.id else {"cmd": "apps"}
+    if arguments.command == "fan":
+        if arguments.mode:
+            command["mode"] = arguments.mode
+        if arguments.percent is not None:
+            if not 0 <= arguments.percent <= 100:
+                parser.error("--percent must be 0-100")
+            command["percent"] = arguments.percent
+    if arguments.command == "notify":
+        command["text"] = arguments.text
+        if arguments.title:
+            command["title"] = arguments.title
+        if arguments.app:
+            command["app"] = arguments.app
+        if arguments.seconds is not None:
+            if not math.isfinite(arguments.seconds):
+                parser.error("--seconds must be finite")
+            if arguments.seconds <= 0:
+                parser.error("--seconds must be positive")
+            if arguments.seconds > 86400:
+                parser.error("--seconds must not exceed 86400")
+            command["seconds"] = arguments.seconds
+    if arguments.command == "button":
+        command.update(buttonFields(arguments, parser))
+    commandJson = json.dumps(command, ensure_ascii=False, separators=(",", ":"))
+    if len(commandJson.encode("utf-8")) > 4096:
+        parser.error("command exceeds the 4096-byte protocol limit")
+    return arguments, commandJson
+
+
+def buttonFields(arguments, parser):
+    if re.fullmatch(r"[a-z0-9-]{1,32}", arguments.id) is None:
+        parser.error("ID must match [a-z0-9-]{1,32}")
+    fields = {"id": arguments.id}
+    for option, name in (("icon", "icon"), ("icon_path", "iconPath"), ("tint", "tint"), ("background", "background")):
+        value = getattr(arguments, option)
+        if value is None:
+            continue
+        if name in ("tint", "background"):
+            if value == "none":
+                value = None
+            elif re.fullmatch(r"#[0-9a-fA-F]{6}", value) is None:
+                parser.error(f"--{option} requires #rrggbb or none")
+        if name == "iconPath" and not Path(value).is_absolute():
+            parser.error("--icon-path requires an absolute path")
+        fields[name] = value
+    if arguments.hide:
+        fields["visible"] = False
+    if arguments.show:
+        fields["visible"] = True
+    return fields
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
+LAYOUT_DIRECTORY = REPOSITORY_ROOT / "layouts"
+LIVE_LAYOUT_PATH = Path.home() / "Library/Application Support/MTMR/items.json"
+LAYOUT_BACKUP_DIRECTORY = LIVE_LAYOUT_PATH.parent / "layout-backups"
+KEPT_LAYOUT_BACKUPS = 20
+
+
+def renderedLayout(name):
+    text = (LAYOUT_DIRECTORY / f"{name}.json").read_text(encoding="utf-8")
+    return text.replace("${REPO}", str(REPOSITORY_ROOT))
+
+
+def layoutNames():
+    return sorted(path.stem for path in LAYOUT_DIRECTORY.glob("*.json"))
+
+
+def activeLayout():
+    try:
+        live = LIVE_LAYOUT_PATH.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    return next((name for name in layoutNames() if renderedLayout(name) == live), "custom")
+
+
+def backUpLiveLayout():
+    if not LIVE_LAYOUT_PATH.exists():
+        return None
+    LAYOUT_BACKUP_DIRECTORY.mkdir(mode=0o700, exist_ok=True)
+    backupPath = LAYOUT_BACKUP_DIRECTORY / f"items-{datetime.now().strftime('%Y%m%d-%H%M%S-%f')}.json"
+    backupPath.write_bytes(LIVE_LAYOUT_PATH.read_bytes())
+    for oldBackup in sorted(LAYOUT_BACKUP_DIRECTORY.glob("items-*.json"))[:-KEPT_LAYOUT_BACKUPS]:
+        oldBackup.unlink()
+    return backupPath
+
+
+def switchLayout(arguments):
+    if arguments.name is None:
+        print(f"active: {activeLayout() or 'none'} (available: {', '.join(layoutNames())})")
+        return 0
+    if arguments.name not in layoutNames():
+        print(f"tbctl: unknown layout {arguments.name!r} (available: {', '.join(layoutNames())})", file=sys.stderr)
+        return 2
+    rendered = renderedLayout(arguments.name)
+    try:
+        json.loads(rendered)
+    except ValueError as error:
+        print(f"tbctl: layouts/{arguments.name}.json is not valid JSON: {error}", file=sys.stderr)
+        return 1
+    if getattr(arguments, "dry_run", False):
+        print(rendered, end="")
+        return 0
+    backupPath = backUpLiveLayout()
+    # Written in place: MTMR watches the file descriptor of items.json, so a rename would stop hot reload.
+    with open(LIVE_LAYOUT_PATH, "w", encoding="utf-8") as liveLayout:
+        liveLayout.write(rendered)
+    print(f"layout: {arguments.name}" + (f" (previous saved to {backupPath})" if backupPath else ""))
+    return 0
+
+
+def receiveReply(connection):
+    replyBytes = bytearray()
+    while True:
+        received = connection.recv(1024)
+        if not received:
+            raise ValueError("server closed without a complete reply")
+        replyBytes.extend(received)
+        newlineIndex = replyBytes.find(b"\n")
+        if newlineIndex >= 0:
+            if newlineIndex > 1048576:
+                raise ValueError("server reply exceeds 1 MiB")
+            reply = json.loads(replyBytes[:newlineIndex])
+            if not isinstance(reply, dict):
+                raise ValueError("server reply must be a JSON object")
+            if type(reply.get("ok")) is not bool:
+                raise ValueError("server reply requires a boolean ok field")
+            return reply
+        if len(replyBytes) > 1048576:
+            raise ValueError("server reply exceeds 1 MiB")
+
+
+def main():
+    arguments, commandJson = parseArguments()
+    if arguments.command == "layout":
+        return switchLayout(arguments)
+    if getattr(arguments, "dry_run", False):
+        print(commandJson)
+        return 0
+    defaultSocketPath = Path.home() / "Library/Application Support/MTMR/mtmr.sock"
+    socketPath = str(Path(getattr(arguments, "socket", defaultSocketPath)).expanduser())
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.settimeout(5)
+            connection.connect(socketPath)
+            connection.sendall(commandJson.encode("utf-8") + b"\n")
+            reply = receiveReply(connection)
+        if reply["ok"]:
+            if arguments.command == "fan" or (arguments.command in ("buttons", "app") and "id" not in json.loads(commandJson)):
+                print(json.dumps(reply, ensure_ascii=False, separators=(",", ":")))
+            return 0
+        print(f"tbctl: {reply.get('error', 'server rejected command')}", file=sys.stderr)
+        return 1
+    except OSError as error:
+        if error.errno in (errno.ENOENT, errno.ECONNREFUSED):
+            print("tbctl: MTMR is not running (no socket)", file=sys.stderr)
+            return 3
+        print(f"tbctl: {error}", file=sys.stderr)
+        return 1
+    except (ValueError, UnicodeError) as error:
+        print(f"tbctl: invalid server reply: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

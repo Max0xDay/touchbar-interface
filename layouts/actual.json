@@ -1,0 +1,71 @@
+[
+  {
+    "type": "exitTouchbar",
+    "title": "✕",
+    "align": "left",
+    "width": 30
+  },
+  {
+    "type": "staticButton",
+    "title": "",
+    "align": "left",
+    "bordered": false,
+    "width": 1
+  },
+  {
+    "type": "staticButton",
+    "title": "",
+    "align": "left",
+    "width": 75,
+    "id": "teams-mic",
+    "icon": "mic.fill",
+    "tint": "#8e8e93",
+    "startHidden": true,
+    "watcher": ["${REPO}/teams/teams-watch"],
+    "actions": [
+      {
+        "trigger": "singleTap",
+        "action": "shellScript",
+        "executablePath": "${REPO}/teams/teams-mic-tap",
+        "shellArguments": []
+      }
+    ]
+  },
+  {
+    "type": "staticButton",
+    "title": "",
+    "align": "left",
+    "width": 75,
+    "id": "teams-camera",
+    "icon": "video.fill",
+    "tint": "#8e8e93",
+    "startHidden": true,
+    "watcher": ["${REPO}/teams/teams-watch", "--device", "camera"],
+    "actions": [
+      {
+        "trigger": "singleTap",
+        "action": "shellScript",
+        "executablePath": "${REPO}/teams/teams-camera-tap",
+        "shellArguments": []
+      }
+    ]
+  },
+  {
+    "type": "notification",
+    "align": "center",
+    "maxChars": 36,
+    "defaultSeconds": 8,
+    "mirror": {
+      "stickyApps": ["com.microsoft.teams2", "com.microsoft.outlook"],
+      "stickySeconds": 600,
+      "lobApps": ["net.kovidgoyal.kitty"]
+    }
+  },
+  {
+    "type": "appControls",
+    "align": "right",
+    "width": 340,
+    "switcher": "right",
+    "panels": ["system", "lob", "ytmusic", "vscode", "stats", "fan"]
+  }
+]

@@ -1,0 +1,12 @@
+#!/bin/bash
+# Tap handler for the teams-mic button: toggles the Teams mic and repaints the button at once
+# (teams-watch would catch up within a second anyway; this removes the lag). Not in a call: does nothing.
+set -euo pipefail
+scriptDirectory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+tbctl="${scriptDirectory}/../bin/tbctl"
+
+state="$("${scriptDirectory}/teams-mute" toggle 2>/dev/null)" || exit 0
+case "${state}" in
+  muted)   "${tbctl}" button teams-mic --icon mic.slash.fill --tint '#ff3b30' --show ;;
+  unmuted) "${tbctl}" button teams-mic --icon mic.fill --tint '#34c759' --show ;;
+esac

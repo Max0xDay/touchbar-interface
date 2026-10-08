@@ -1,0 +1,170 @@
+--- a/AppDelegate.swift
++++ b/AppDelegate.swift
+@@ -18,6 +18,7 @@
+         AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeRetainedValue() as NSString: true] as NSDictionary)
+ 
+         TouchBarController.shared.setupControlStripPresence()
++        NotificationSocketServer.shared.start()
+ 
+         if let button = statusItem.button {
+             button.image = bundledImage("StatusImage")
+@@ -31,7 +32,9 @@
+         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(updateIsBlockedApp), name: NSWorkspace.didActivateApplicationNotification, object: nil)
+     }
+ 
+-    func applicationWillTerminate(_: Notification) {}
++    func applicationWillTerminate(_: Notification) {
++        NotificationSocketServer.shared.stop()
++    }
+ 
+     @objc func updateIsBlockedApp() {
+         if let frontmostAppId = TouchBarController.shared.frontmostApplicationIdentifier {
+--- a/BasicView.swift
++++ b/BasicView.swift
+@@ -29,6 +29,10 @@
+         stackView.spacing = 8
+         stackView.orientation = .horizontal
+         view = stackView
++        if views.contains(where: { $0 is NotificationAreaView }) {
++            stackView.distribution = .fill
++            stackView.setContentHuggingPriority(.init(1), for: .horizontal)
++        }
+ 
+         twofingers = NSPanGestureRecognizer(target: self, action: #selector(twofingersHandler(_:)))
+         twofingers.numberOfTouchesRequired = 2
+--- a/ItemsParsing.swift
++++ b/ItemsParsing.swift
+@@ -256,6 +256,7 @@
+ }
+ 
+ enum ItemType: Decodable {
++    case notification(maxChars: Int, defaultSeconds: Double)
+     case staticButton(title: String)
+     case appleScriptTitledButton(source: SourceProtocol, refreshInterval: Double, alternativeImages: [String: SourceProtocol])
+     case shellScriptTitledButton(source: SourceProtocol, refreshInterval: Double)
+@@ -310,9 +311,12 @@
+         case fingers
+         case minOffset
+         case maxToShow
++        case maxChars
++        case defaultSeconds
+     }
+ 
+     enum ItemTypeRaw: String, Decodable {
++        case notification
+         case staticButton
+         case appleScriptTitledButton
+         case shellScriptTitledButton
+@@ -341,6 +345,20 @@
+         let container = try decoder.container(keyedBy: CodingKeys.self)
+         let type = try container.decode(ItemTypeRaw.self, forKey: .type)
+         switch type {
++        case .notification:
++            let maxChars = try container.decodeIfPresent(Int.self, forKey: .maxChars) ?? 40
++            let defaultSeconds = try container.decodeIfPresent(Double.self, forKey: .defaultSeconds) ?? 8
++            guard (1...1000).contains(maxChars) else {
++                throw DecodingError.dataCorruptedError(forKey: .maxChars, in: container, debugDescription: "maxChars must be 1...1000")
++            }
++            guard defaultSeconds > 0 else {
++                throw DecodingError.dataCorruptedError(forKey: .defaultSeconds, in: container, debugDescription: "defaultSeconds must be positive")
++            }
++            guard defaultSeconds <= 86400 else {
++                throw DecodingError.dataCorruptedError(forKey: .defaultSeconds, in: container, debugDescription: "defaultSeconds must not exceed 86400")
++            }
++            self = .notification(maxChars: maxChars, defaultSeconds: defaultSeconds)
++
+         case .appleScriptTitledButton:
+             let source = try container.decode(Source.self, forKey: .source)
+             let interval = try container.decodeIfPresent(Double.self, forKey: .refreshInterval) ?? 1800.0
+--- a/TouchBarController.swift
++++ b/TouchBarController.swift
+@@ -17,8 +17,15 @@
+ let standardConfigPath = appSupportDirectory.appending("/items.json")
+ 
+ extension ItemType {
++    var isNotification: Bool {
++        if case .notification = self { return true }
++        return false
++    }
++
+     var identifierBase: String {
+         switch self {
++        case .notification:
++            return "com.maxday.mtmr.notification."
+         case .staticButton(title: _):
+             return "com.toxblh.mtmr.staticButton."
+         case .appleScriptTitledButton(source: _):
+@@ -181,7 +188,7 @@
+         })
+ 
+         let centerScrollArea = NSTouchBarItem.Identifier("com.toxblh.mtmr.scrollArea.".appending(UUID().uuidString))
+-        let scrollArea = ScrollViewItem(identifier: centerScrollArea, items: centerItems)
++        let centerArea = centerItems.first(where: { $0 is NotificationTouchBarItem }) ?? ScrollViewItem(identifier: centerScrollArea, items: centerItems)
+         
+         basicViewIdentifier = NSTouchBarItem.Identifier("com.toxblh.mtmr.scrollView.".appending(UUID().uuidString))
+ 
+@@ -195,7 +202,7 @@
+             items[identifier]
+         })
+ 
+-        basicView = BasicView(identifier: basicViewIdentifier, items:leftItems + [scrollArea] + rightItems, swipeItems: swipeItems)
++        basicView = BasicView(identifier: basicViewIdentifier, items:leftItems + [centerArea] + rightItems, swipeItems: swipeItems)
+         basicView?.legacyGesturesEnabled = AppSettings.multitouchGestures
+     }
+ 
+@@ -203,7 +210,16 @@
+         updateActiveApp()
+     }
+ 
++    private var hasNotificationArea: Bool {
++        return jsonItems.contains { $0.type.isNotification }
++    }
++
+     func updateActiveApp() {
++        if hasNotificationArea {
++            prepareTouchBar()
++            presentTouchBar()
++            return
++        }
+         if frontmostApplicationIdentifier != nil && blacklistAppIdentifiers.firstIndex(of: frontmostApplicationIdentifier!) != nil {
+             dismissTouchBar()
+         } else {
+@@ -262,6 +278,10 @@
+         swipeItems = []
+ 
+         for (identifier, definition) in itemDefinitions {
++            if definition.type.isNotification {
++                items[identifier] = createItem(forIdentifier: identifier, definition: definition)
++                continue
++            }
+             var show = true
+             
+             if let frontApp = frontmostApplicationIdentifier {
+@@ -299,7 +319,9 @@
+     }
+ 
+     @objc private func presentTouchBar() {
+-        if AppSettings.showControlStripState {
++        if hasNotificationArea {
++            presentSystemModal(touchBar, placement: 1, systemTrayItemIdentifier: .controlStripItem)
++        } else if AppSettings.showControlStripState {
+             presentSystemModal(touchBar, systemTrayItemIdentifier: .controlStripItem)
+         } else {
+             presentSystemModal(touchBar, placement: 1, systemTrayItemIdentifier: .controlStripItem)
+@@ -330,6 +352,8 @@
+     func createItem(forIdentifier identifier: NSTouchBarItem.Identifier, definition item: BarItemDefinition) -> NSTouchBarItem? {
+         var barItem: NSTouchBarItem!
+         switch item.type {
++        case let .notification(maxChars: maxChars, defaultSeconds: defaultSeconds):
++            barItem = NotificationTouchBarItem(identifier: identifier, maxChars: maxChars, defaultSeconds: defaultSeconds)
+         case let .staticButton(title: title):
+             barItem = CustomButtonTouchBarItem(identifier: identifier, title: title)
+         case let .appleScriptTitledButton(source: source, refreshInterval: interval, alternativeImages: alternativeImages):
+@@ -575,6 +599,7 @@
+ 
+ extension BarItemDefinition {
+     var align: Align {
++        if type.isNotification { return .center }
+         if case let .align(result)? = additionalParameters[.align] {
+             return result
+         }

@@ -1,0 +1,378 @@
+import Cocoa
+
+enum NotificationDebug {
+    static var enabled = true
+
+    static func hierarchy(_ view: NSView) {
+        guard enabled else { return }
+        var chain: [String] = []
+        var current: NSView? = view
+        while let host = current {
+            chain.append(String(describing: type(of: host)))
+            current = host.superview
+        }
+        NSLog("MTMR-notif: touch host=%@ window=%@ chain=%@", String(describing: type(of: view)), String(describing: view.window), chain.joined(separator: " -> "))
+    }
+}
+
+final class NotificationAreaView: NSView {
+    private let label = NSTextField(labelWithString: "")
+    /// The source app's icon (e.g. Teams, Outlook, lob), drawn left of the text; text and icon centre as one group.
+    private let iconView = NSImageView()
+    /// Same size as the App Controls switcher icon. The text is placed as if the icon took `iconSlot`, so the
+    /// bigger icon reaches further left and the text stays where it was.
+    private static let iconSize = TouchBarIcon.switcherBox
+    private static let iconSlot: CGFloat = 18
+    private static let iconGap: CGFloat = 6
+    /// A small pulsing dot at the top right while more than one notification is live.
+    private let moreDot = CALayer()
+    private var moreShown = false
+    private var icon: NSImage?
+    private var targetIcon: NSImage?
+    private var shownIcon: NSImage?
+    /// Two-line entries: a heading above the text; the text then uses a smaller font.
+    private let heading = NSTextField(labelWithString: "")
+    private let headingFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
+    private let detailFont = NSFont.systemFont(ofSize: 10)
+    private var title: String?
+    private var targetTitle: String?
+    private var shownTitle: String?
+    private let maxChars: Int
+    private let fadeSeconds: Double
+    private let inset = CGFloat(NotificationTextMetrics.innerInset)
+    private let font = NSFont.monospacedSystemFont(ofSize: CGFloat(NotificationTextMetrics.fontSize), weight: .regular)
+    private var text = ""
+    private var targetText = ""
+    private var movedDuringSwipe = false
+    private var pendingTransition: DispatchWorkItem?
+    private var transitionGeneration = 0
+    private var activeTouch: NSTouch?
+    private var initialLocation = NSPoint.zero
+    private var latestLocation = NSPoint.zero
+    private var loggedWindowHierarchy = false
+
+    init(maxChars: Int, fadeSeconds: Double = 0.35) {
+        self.maxChars = maxChars
+        self.fadeSeconds = fadeSeconds
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.masksToBounds = true
+        allowedTouchTypes = .direct
+        wantsRestingTouches = true
+        label.wantsLayer = true
+        label.font = font
+        label.textColor = .white
+        label.alignment = .center
+        label.maximumNumberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
+        label.cell?.wraps = false
+        label.cell?.isScrollable = false
+        label.autoresizingMask = []
+        addSubview(label)
+        iconView.wantsLayer = true
+        iconView.imageScaling = .scaleProportionallyUpOrDown
+        iconView.layer?.opacity = 0
+        addSubview(iconView)
+        heading.wantsLayer = true
+        heading.font = headingFont
+        heading.textColor = .white
+        heading.maximumNumberOfLines = 1
+        heading.lineBreakMode = .byTruncatingTail
+        heading.cell?.wraps = false
+        heading.layer?.opacity = 0
+        addSubview(heading)
+        moreDot.backgroundColor = NSColor(white: 1, alpha: 0.85).cgColor
+        moreDot.cornerRadius = 2
+        moreDot.isHidden = true
+        layer?.addSublayer(moreDot)
+        setContentHuggingPriority(.init(1), for: .horizontal)
+        setContentCompressionResistancePriority(.init(1), for: .horizontal)
+        NotificationDebug.hierarchy(self)
+        // #COMPLETION_DRIVE: Direct touches on this full-area hit target avoid label targeting and pan recognition thresholds on a 30 pt bar.
+        // #SUGGEST_VERIFY: Read MTMR-notif logs on hardware; verify up/down navigation and expiry pause through end/cancel.
+    }
+
+    required init?(coder: NSCoder) { return nil }
+
+    override var intrinsicContentSize: NSSize { return NSSize(width: 24, height: 30) }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard super.hitTest(point) != nil else { return nil }
+        return self
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if superview != nil { NotificationDebug.hierarchy(self) }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else {
+            finishSwipe()
+            return
+        }
+        if !loggedWindowHierarchy {
+            loggedWindowHierarchy = true
+            NotificationDebug.hierarchy(self)
+        }
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        moreDot.frame = NSRect(x: bounds.maxX - 7, y: bounds.maxY - 7, width: 4, height: 4)
+        CATransaction.commit()
+        positionContent()
+        updateText(animated: false)
+        if NotificationDebug.enabled {
+            NSLog("MTMR-notif: area=%@ label=%@", NSStringFromRect(frame), NSStringFromRect(label.frame))
+        }
+    }
+
+    func show(text: String, icon: NSImage? = nil, title: String? = nil) {
+        func collapse(_ value: String) -> String {
+            return value.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.joined(separator: " ")
+        }
+        self.text = collapse(text)
+        let heading = title.map(collapse)
+        self.title = self.text.isEmpty || heading?.isEmpty != false ? nil : heading
+        self.icon = self.text.isEmpty ? nil : icon
+        updateText(animated: true)
+    }
+
+    private var glyphWidth: CGFloat {
+        return ("M" as NSString).size(withAttributes: [.font: font]).width
+    }
+
+    /// Without an icon the label spans the area (text centred, as before). With an icon, icon and text centre as
+    /// one group; the label takes its measured text width so the text sits right beside the icon.
+    private func positionContent() {
+        let labelHeight = min(bounds.height, ceil(font.ascender - font.descender + font.leading) + 2)
+        let available = max(0, bounds.width - 2 * inset)
+        let labelY = bounds.midY - labelHeight / 2
+        if shownTitle != nil {
+            positionTwoLines(available: available)
+            return
+        }
+        guard shownIcon != nil else {
+            label.frame = NSRect(x: bounds.minX + min(inset, bounds.width / 2), y: labelY, width: available, height: labelHeight)
+            return
+        }
+        let iconSpace = Self.iconSlot + Self.iconGap
+        let measured = ceil((label.stringValue as NSString).size(withAttributes: [.font: font]).width) + 6
+        let textWidth = min(max(0, available - iconSpace), measured)
+        let groupX = bounds.midX - (iconSpace + textWidth) / 2
+        iconView.frame = iconFrame(textX: groupX + iconSpace)
+        label.frame = NSRect(x: groupX + iconSpace, y: labelY, width: textWidth, height: labelHeight)
+    }
+
+    /// Heading (top) and text (below, smaller), left-aligned with each other; icon and lines centre as one group.
+    private func positionTwoLines(available: CGFloat) {
+        let iconSpace = shownIcon == nil ? 0 : Self.iconSlot + Self.iconGap
+        // Measured from the strings themselves (+ the text field's padding): the fields' intrinsic widths came out
+        // short and cut "Meeting joined" to "Meeting join…" with plenty of room left.
+        func width(_ text: String, _ font: NSFont) -> CGFloat {
+            return ceil((text as NSString).size(withAttributes: [.font: font]).width) + 6
+        }
+        let linesWidth = min(max(0, available - iconSpace), max(width(heading.stringValue, headingFont), width(label.stringValue, detailFont)))
+        let groupX = bounds.midX - (iconSpace + linesWidth) / 2
+        iconView.frame = iconFrame(textX: groupX + iconSpace)
+        // Each line gets its field's full fitting height (the fields are transparent, so they may overlap):
+        // shorter frames clipped descenders such as g, j, y.
+        let headingHeight = ceil(heading.cell?.cellSize.height ?? 16)
+        let labelHeight = ceil(label.cell?.cellSize.height ?? 14)
+        heading.frame = NSRect(x: groupX + iconSpace, y: bounds.maxY - headingHeight + 1, width: linesWidth, height: headingHeight)
+        label.frame = NSRect(x: groupX + iconSpace, y: bounds.minY - 1, width: linesWidth, height: labelHeight)
+    }
+
+    /// The icon ends `iconGap` left of the text, vertically centred.
+    private func iconFrame(textX: CGFloat) -> NSRect {
+        return NSRect(x: max(0, textX - Self.iconGap - Self.iconSize), y: bounds.midY - Self.iconSize / 2, width: Self.iconSize, height: Self.iconSize)
+    }
+
+    func showMore(_ more: Bool) {
+        guard more != moreShown else { return }
+        moreShown = more
+        moreDot.isHidden = !more
+        moreDot.removeAllAnimations()
+        guard more, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        let pulse = CABasicAnimation(keyPath: "opacity")
+        pulse.fromValue = 1
+        pulse.toValue = 0.2
+        pulse.duration = 1.1
+        pulse.autoreverses = true
+        pulse.repeatCount = .infinity
+        moreDot.add(pulse, forKey: "pulse")
+    }
+
+    private func updateText(animated: Bool) {
+        let iconSpace = icon == nil ? 0 : Double(Self.iconSlot + Self.iconGap)
+        let capacity = NotificationTextMetrics.capacity(width: max(0, Double(bounds.width) - iconSpace), inset: Double(inset), glyphWidth: Double(glyphWidth), maxChars: maxChars)
+        // Two-line entries use proportional fonts; the label truncates them itself.
+        let nextText = title == nil ? NotificationTextMetrics.truncated(text, capacity: capacity) : text
+        let nextIcon = nextText.isEmpty ? nil : icon
+        let nextTitle = nextText.isEmpty ? nil : title
+        if animated {
+            guard nextText != targetText || nextIcon !== targetIcon || nextTitle != targetTitle else { return }
+        } else if pendingTransition == nil {
+            guard nextText != label.stringValue || nextIcon !== shownIcon || nextTitle != shownTitle else { return }
+        }
+        targetText = nextText
+        targetIcon = nextIcon
+        targetTitle = nextTitle
+        let currentOpacity = label.layer?.presentation()?.opacity ?? label.layer?.opacity ?? 1
+        transitionGeneration += 1
+        let generation = transitionGeneration
+        pendingTransition?.cancel()
+        pendingTransition = nil
+        for layer in contentLayers { layer.removeAllAnimations() }
+        guard animated else {
+            setLabel(nextText, icon: nextIcon, title: nextTitle)
+            return
+        }
+        guard fadeSeconds > 0 else {
+            setLabel(nextText, icon: nextIcon, title: nextTitle)
+            return
+        }
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if label.stringValue.isEmpty {
+            reveal(nextText, icon: nextIcon, title: nextTitle, reduceMotion: reduceMotion)
+            return
+        }
+        let duration = reduceMotion ? 0.15 : (nextText.isEmpty ? 0.25 : 0.12)
+        animateOpacity(from: currentOpacity, to: 0, seconds: duration, timing: .easeIn)
+        let transition = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            guard self.transitionGeneration == generation else { return }
+            self.pendingTransition = nil
+            self.reveal(nextText, icon: nextIcon, title: nextTitle, reduceMotion: reduceMotion)
+        }
+        pendingTransition = transition
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: transition)
+    }
+
+    private var contentLayers: [CALayer] {
+        return [label.layer, iconView.layer, heading.layer].compactMap { $0 }
+    }
+
+    private func setLabel(_ nextText: String, icon nextIcon: NSImage?, title nextTitle: String?) {
+        label.stringValue = nextText
+        shownIcon = nextIcon
+        iconView.image = nextIcon
+        shownTitle = nextTitle
+        heading.stringValue = nextTitle ?? ""
+        // One line: 15 pt monospaced, centred. Two lines: the text becomes the smaller second line.
+        label.font = nextTitle == nil ? font : detailFont
+        label.textColor = nextTitle == nil ? .white : NSColor(white: 0.72, alpha: 1)
+        label.alignment = nextTitle == nil ? .center : .left
+        heading.alignment = .left
+        positionContent()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        label.layer?.opacity = nextText.isEmpty ? 0 : 1
+        iconView.layer?.opacity = nextIcon == nil ? 0 : 1
+        heading.layer?.opacity = nextTitle == nil ? 0 : 1
+        for layer in contentLayers { layer.transform = CATransform3DIdentity }
+        CATransaction.commit()
+    }
+
+    private func reveal(_ nextText: String, icon nextIcon: NSImage?, title nextTitle: String?, reduceMotion: Bool) {
+        setLabel(nextText, icon: nextIcon, title: nextTitle)
+        guard !nextText.isEmpty else { return }
+        let duration = reduceMotion ? 0.15 : fadeSeconds
+        animateOpacity(from: 0, to: 1, seconds: duration, timing: .easeOut)
+        guard !reduceMotion else { return }
+        let slide = CABasicAnimation(keyPath: "transform.translation.y")
+        slide.fromValue = -3
+        slide.toValue = 0
+        slide.duration = duration
+        slide.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        for layer in contentLayers { layer.add(slide, forKey: "notificationSlide") }
+        // #COMPLETION_DRIVE: A 3 pt layer translation and 15 pt monospaced text are visually subtle/readable on the physical bar.
+        // #SUGGEST_VERIFY: Check visual settling, legibility and Reduce Motion on the real Touch Bar.
+    }
+
+    private func animateOpacity(from: Float, to: Float, seconds: Double, timing: CAMediaTimingFunctionName) {
+        // Icon and heading fade with the text; absent ones stay at 0.
+        var layers = [label.layer].compactMap { $0 }
+        if shownIcon != nil, let iconLayer = iconView.layer { layers.append(iconLayer) }
+        if shownTitle != nil, let headingLayer = heading.layer { layers.append(headingLayer) }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for layer in layers { layer.opacity = to }
+        CATransaction.commit()
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = from
+        fade.toValue = to
+        fade.duration = seconds
+        fade.timingFunction = CAMediaTimingFunction(name: timing)
+        for layer in layers { layer.add(fade, forKey: "notificationFade") }
+    }
+
+    override func touchesBegan(with event: NSEvent) { receiveTouches(event, phase: .began, state: "began") }
+    override func touchesMoved(with event: NSEvent) { receiveTouches(event, phase: .moved, state: "moved") }
+    override func touchesEnded(with event: NSEvent) { receiveTouches(event, phase: .ended, state: "ended") }
+    override func touchesCancelled(with event: NSEvent) { receiveTouches(event, phase: .cancelled, state: "cancelled") }
+
+    private func receiveTouches(_ event: NSEvent, phase: NSTouch.Phase, state: String) {
+        let touches = event.touches(matching: phase, in: self).filter { $0.type == .direct }
+        if NotificationDebug.enabled {
+            NSLog("MTMR-notif: event state=%@ directTouches=%ld", state, touches.count)
+        }
+        for touch in touches {
+            let location = touch.location(in: self)
+            if NotificationDebug.enabled {
+                NSLog("MTMR-notif: touch state=%@ location=%@ translation=%@", state, NSStringFromPoint(location), NSStringFromPoint(NSPoint(x: location.x - initialLocation.x, y: location.y - initialLocation.y)))
+            }
+            if phase == .began {
+                guard activeTouch == nil else {
+                    finishSwipe()
+                    return
+                }
+                activeTouch = touch
+                movedDuringSwipe = false
+                initialLocation = location
+                latestLocation = location
+                NotificationStore.shared.pause()
+            } else if let activeTouch = activeTouch {
+                guard activeTouch.identity.isEqual(touch.identity) else { continue }
+                latestLocation = location
+                if phase != .cancelled {
+                    navigateSwipe()
+                }
+                if phase == .ended {
+                    finishSwipe()
+                } else if phase == .cancelled {
+                    finishSwipe()
+                }
+            }
+        }
+        if phase == .cancelled { finishSwipe() }
+    }
+
+    private func navigateSwipe() {
+        guard !movedDuringSwipe else { return }
+        let offset = NotificationSwipe.offset(horizontal: Double(latestLocation.x - initialLocation.x), vertical: Double(latestLocation.y - initialLocation.y))
+        guard offset != 0 else { return }
+        movedDuringSwipe = true
+        NotificationStore.shared.move(by: offset)
+    }
+
+    private func finishSwipe() {
+        guard activeTouch != nil else { return }
+        activeTouch = nil
+        NotificationStore.shared.resume()
+    }
+
+    deinit {
+        pendingTransition?.cancel()
+        if activeTouch != nil { NotificationStore.shared.resume() }
+    }
+}
