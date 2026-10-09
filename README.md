@@ -1,6 +1,8 @@
 # touchbar-interface
 
-A personal Touch Bar product for one MacBook Pro (13", M1, macOS 14.7.6). The project builds [MTMR](https://github.com/Toxblh/MTMR) natively and adds a **local socket**. Scripts, tools and other projects use the socket to push notifications and button state to the bar.
+A Touch Bar app built on [MTMR](https://github.com/Toxblh/MTMR), with a local socket and the `tbctl` client. Scripts, tools and other projects use the socket to push notifications, button state and panel selection to the bar.
+
+Targets Apple Silicon MacBook Pros with a Touch Bar. Developed and tested on macOS 14.7.6.
 
 ## The bar
 
@@ -34,9 +36,9 @@ mtmr/
   overlay/         our own Swift files, copied into the build
   tests/           run-tests.sh: Python CLI tests and standalone Swift harnesses
 layouts/
-  template.json    reference layout for spacing and look (change it only to experiment)
+  template.json    reference layout for spacing and look
   actual.json      the everyday layout
-teams/             Teams mute control through the debug port, the mic watcher and the tap action
+teams/             Teams mute and camera control through the debug port, the watchers and the tap actions
 docs/              guides and findings (see below)
 build/             build output (git-ignored)
 ```
@@ -65,9 +67,6 @@ After every rebuild, reset and grant the Accessibility permission again. See [do
 | [runbook-teams-debug.md](docs/runbook-teams-debug.md) | Teams debug port, mute control, LaunchAgent |
 | [findings.md](docs/findings.md) | Facts about the Touch Bar, MTMR, macOS and Teams |
 
-## Rules for working in this repo
+## License
 
-- Record facts in `docs/findings.md`. Say how each fact was established: verified on the machine, read in source, or unverified.
-- Back up before you change anything on the machine (configs, LaunchAgents, settings). Keep changes reversible.
-- Never use Rosetta 2 or Intel-only binaries.
-- Never edit the upstream MTMR clone. Keep changes in `mtmr/patches/` and `mtmr/overlay/`.
+MIT, see [LICENSE](LICENSE). Builds on MTMR (MIT), see [NOTICE](NOTICE).

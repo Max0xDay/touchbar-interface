@@ -73,7 +73,7 @@ Taps use existing MTMR `actions`; there is no new tap transport. The Teams item 
   "width":75, "icon":"mic.fill", "tint":"#8e8e93",
   "actions":[{
     "trigger":"singleTap", "action":"shellScript",
-    "executablePath":"/Users/maxday/Workspace/projects/maxlaptopmtmr/touchbar-interface/teams/teams-mute",
+    "executablePath":"/path/to/touchbar-interface/teams/teams-mute",
     "shellArguments":["toggle"]
   }]
 }
@@ -164,7 +164,7 @@ no state could be applied (0 on successful application or dry-run).
   <key>Label</key><string>com.maxday.teams-watch</string>
   <key>ProgramArguments</key><array>
     <string>/ABSOLUTE/PATH/TO/python3</string>
-    <string>/Users/maxday/Workspace/projects/maxlaptopmtmr/touchbar-interface/teams/teams-watch</string>
+    <string>/path/to/touchbar-interface/teams/teams-watch</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>

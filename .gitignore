@@ -1,3 +1,5 @@
 # Build output (regenerate with mtmr/build.sh)
 build/
 .DS_Store
+__pycache__/
+*.pyc

@@ -22,7 +22,7 @@ import time
 from urllib.parse import urlparse
 
 # ---------------------------------------------------------------------------------------------
-# Selectors and state mapping. Taken from the verified cliui research (theboxstuff/cliui/daemon/docs/teams-debug-port-approach.md):
+# Selectors and state mapping. Taken from earlier private research notes:
 # the in-call mic button matches [aria-label*=mic i]; its label names the NEXT action, so
 # "Unmute mic" means currently muted and "Mute mic" means currently unmuted. Verified there on Teams 26213; not yet on this build.
 # Fix these from `teams-mute discover` output; nothing else in the file should need to change.
@@ -43,7 +43,7 @@ DEVICES = {
         "states": [["^turn camera on", "off"], ["^turn camera off", "on"]],
     },
 }
-# #COMPLETION_DRIVE: call pages are served from these hosts (cliui research filtered on teams.microsoft.com)
+# #COMPLETION_DRIVE: call pages are served from these hosts (earlier research filtered on teams.microsoft.com)
 # #SUGGEST_VERIFY: if status always reports no-call during a call, widen this list after checking the host of the call window
 TEAMS_HOST_SUFFIXES = ("teams.microsoft.com", "teams.cloud.microsoft", "teams.live.com")
 DISCOVER_NAME_PATTERN = "mic|mute|camera|video"

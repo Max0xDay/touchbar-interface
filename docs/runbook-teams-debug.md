@@ -3,7 +3,7 @@
 Reads and toggles the Microsoft Teams microphone mute state from scripts, by talking to Teams' own web view over the Chrome DevTools Protocol (CDP).
 
 - Last verified: 2026-10-02, new Microsoft Teams 26246.x (WebView2 / Edge 153), macOS 14.7.6, in a live call, both directions (mute and unmute, watched in the Teams window).
-- Approach and original research: `/Users/maxday/Workspace/projects/theboxstuff/cliui/daemon/docs/teams-debug-port-approach.md`.
+- Approach and original research: earlier private research notes (not included in this repo).
 
 ## Read this first: what this does to the machine
 
