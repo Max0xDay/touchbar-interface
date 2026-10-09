@@ -83,7 +83,7 @@ if ! [[ "${debugPort}" =~ ^[0-9]+$ ]] || ((debugPort < 1024 || debugPort > 65535
   exit 1
 fi
 
-# Verified in the cliui research (theboxstuff/cliui/daemon/docs/teams-debug-port-approach.md): Teams' WebView2 reads this env var
+# Verified in earlier private research notes: Teams' WebView2 reads this env var
 # and opens a loopback-only DevTools port. --remote-allow-origins=* is needed there for non-browser clients.
 # #SUGGEST_VERIFY: after a real launch run `lsof -nP -iTCP:PORT -sTCP:LISTEN`; this script also checks the bind address
 webviewArguments="--remote-debugging-port=${debugPort} --remote-allow-origins=*"

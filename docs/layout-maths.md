@@ -150,10 +150,10 @@ User-run observation command (not run by the agent):
 ## Verification and rollback
 
 ```bash
-MTMR_CHECKOUT=/Users/maxday/Workspace/projects/maxlaptopmtmr/MTMR mtmr/build.sh
+MTMR_CHECKOUT=/path/to/MTMR mtmr/build.sh
 lipo -archs build/MTMR.app/Contents/MacOS/MTMR
 bash mtmr/tests/run-tests.sh
-git -C /Users/maxday/Workspace/projects/maxlaptopmtmr/MTMR status --porcelain
+git -C /path/to/MTMR status --porcelain
 ```
 
 The runner compiles the pure solver, standalone AppKit views and temporary socket harnesses without launching MTMR.app or creating a Touch Bar. It tests widths, preferred/default/explicit minima, right preservation, capacity/truncation, font metrics, label centring after resizing, hit-testing, swipe-direction thresholds, fade durations, rapid cancellation, expiry-to-blank, zero-duration animation and unchanged no-notification stack behavior. Actual touch delivery, animation appearance and Reduce Motion on hardware still need user verification.

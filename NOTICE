@@ -1,0 +1,9 @@
+touchbar-interface
+
+This project builds on MTMR by Toxblh, licensed under the MIT License.
+
+- Upstream: https://github.com/Toxblh/MTMR
+- Pinned upstream commit: 94fc98c
+- The files in mtmr/patches/ are derived from upstream MTMR and modify it.
+- The files in mtmr/overlay/ are this project's own Swift files, built into the upstream code.
+- The upstream MIT License text is in the MTMR repository (LICENSE file at the commit above).

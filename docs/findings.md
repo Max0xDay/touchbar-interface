@@ -82,7 +82,7 @@ Repo: https://github.com/Toxblh/MTMR (MIT licence).
 
 ## 5. Microsoft Teams (Verified unless marked)
 
-Approach: `/Users/maxday/Workspace/projects/theboxstuff/cliui/daemon/docs/teams-debug-port-approach.md`.
+Approach: earlier private research notes (not included in this repo).
 
 - The Teams third-party app API is not available here (likely disabled by IT). The debug port is a deliberate workaround: any local process can control Teams through it, and it may break IT policy.
 - `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9333 --remote-allow-origins=*"` opens a DevTools port on `127.0.0.1:9333` only. A LaunchAgent sets the variable at login. The plist must wrap `launchctl setenv` in `sh -c`. `launchctl getenv` from a shell reads empty and is not a valid check.
