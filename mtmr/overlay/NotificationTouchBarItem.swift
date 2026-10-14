@@ -14,8 +14,11 @@ final class NotificationStore {
         let title: String?
         /// systemUptime at which the entry expires (moved later by pauses).
         var deadline: Double
+        /// Separate visible countdown; nil while the entry is hidden but still live.
+        var displayDeadline: Double?
     }
 
+    private let displaySeconds: Double = 8
     private var entries: [Entry] = []
     private var selectedIndex = 0
     private var timer: Timer?
@@ -23,16 +26,22 @@ final class NotificationStore {
     var defaultSeconds: Double = 8
     var welcome: String?
 
-    var text: String {
-        return entries.isEmpty ? "" : entries[selectedIndex].text
+    private var visibleEntry: Entry? {
+        guard !entries.isEmpty else { return nil }
+        let entry = entries[selectedIndex]
+        guard entry.displayDeadline != nil else { return nil }
+        return entry
     }
 
-    var icon: NSImage? {
-        return entries.isEmpty ? nil : entries[selectedIndex].icon
-    }
+    var text: String { return visibleEntry?.text ?? "" }
+    var icon: NSImage? { return visibleEntry?.icon }
+    var title: String? { return visibleEntry?.title }
+    var isShowing: Bool { return visibleEntry != nil }
 
-    var title: String? {
-        return entries.isEmpty ? nil : entries[selectedIndex].title
+    /// Live entries remain to be recalled while the notification area is empty.
+    var hasUnread: Bool {
+        guard !isShowing else { return false }
+        return !entries.isEmpty
     }
 
     /// Number of live entries (the area shows a small dot when there is more than one).
@@ -47,10 +56,8 @@ final class NotificationStore {
         guard entries.count < 256 else { return false }
         // While paused, the countdown starts from the pause moment so resume() shifts it like the others.
         let heading = title.flatMap { $0.isEmpty ? nil : $0 }
-        entries.append(Entry(text: text, icon: icon, title: heading, deadline: (pausedAt ?? now) + (seconds ?? defaultSeconds)))
-        selectedIndex = entries.count - 1
-        scheduleExpiry()
-        publish()
+        entries.append(Entry(text: text, icon: icon, title: heading, deadline: (pausedAt ?? now) + (seconds ?? defaultSeconds), displayDeadline: nil))
+        showEntry(at: entries.count - 1)
         return true
     }
 
@@ -83,7 +90,21 @@ final class NotificationStore {
         dispatchPrecondition(condition: .onQueue(.main))
         guard !entries.isEmpty else { return }
         // Endless swipe: wraps around the queue in both directions.
-        selectedIndex = ((selectedIndex + offset) % entries.count + entries.count) % entries.count
+        let nextIndex = ((selectedIndex + offset) % entries.count + entries.count) % entries.count
+        showEntry(at: nextIndex)
+    }
+
+    func showNewestHidden() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard hasUnread else { return }
+        showEntry(at: entries.count - 1)
+    }
+
+    private func showEntry(at index: Int) {
+        entries[selectedIndex].displayDeadline = nil
+        selectedIndex = index
+        entries[index].displayDeadline = min(entries[index].deadline, (pausedAt ?? now) + displaySeconds)
+        scheduleExpiry()
         publish()
     }
 
@@ -92,7 +113,12 @@ final class NotificationStore {
         guard let pausedAt = pausedAt else { return }
         let pausedFor = now - pausedAt
         self.pausedAt = nil
-        for index in entries.indices { entries[index].deadline += pausedFor }
+        for index in entries.indices {
+            entries[index].deadline += pausedFor
+            if let displayDeadline = entries[index].displayDeadline {
+                entries[index].displayDeadline = displayDeadline + pausedFor
+            }
+        }
         scheduleExpiry()
     }
 
@@ -100,7 +126,10 @@ final class NotificationStore {
         timer?.invalidate()
         timer = nil
         guard pausedAt == nil else { return }
-        guard let next = entries.map({ $0.deadline }).min() else { return }
+        guard var next = entries.map({ $0.deadline }).min() else { return }
+        if let displayDeadline = entries[selectedIndex].displayDeadline {
+            next = min(next, displayDeadline)
+        }
         let expiryTimer = Timer(timeInterval: max(0.001, next - now), repeats: false) { [weak self] _ in
             self?.expire()
         }
@@ -111,10 +140,15 @@ final class NotificationStore {
     private func expire() {
         guard !entries.isEmpty else { return }
         let current = now
+        if let displayDeadline = entries[selectedIndex].displayDeadline {
+            if displayDeadline <= current { entries[selectedIndex].displayDeadline = nil }
+        }
         let selectedSurvives = entries[selectedIndex].deadline > current
         let selectedBefore = entries[..<selectedIndex].filter { $0.deadline > current }.count
         entries.removeAll { $0.deadline <= current }
         // Keep showing the same entry if it is still live; otherwise show the newest remaining one.
+        // #COMPLETION_DRIVE: Expiry leaves the area empty; another live entry appears only on tap, swipe or arrival.
+        // #SUGGEST_VERIFY: Confirm this replaces automatic advancement when the shown entry's life ends.
         selectedIndex = selectedSurvives ? selectedBefore : max(0, entries.count - 1)
         scheduleExpiry()
         publish()
@@ -136,11 +170,9 @@ final class NotificationTouchBarItem: NSCustomTouchBarItem {
         NotificationStore.shared.welcome = self.layoutOptions.welcome
         let notificationView = NotificationAreaView(maxChars: maxChars, fadeSeconds: self.layoutOptions.fadeSeconds)
         view = notificationView
-        notificationView.show(text: NotificationStore.shared.text, icon: NotificationStore.shared.icon, title: NotificationStore.shared.title)
-        notificationView.showMore(NotificationStore.shared.count > 1)
+        notificationView.showNotification()
         observer = NotificationCenter.default.addObserver(forName: NotificationStore.changed, object: nil, queue: .main) { [weak notificationView] _ in
-            notificationView?.show(text: NotificationStore.shared.text, icon: NotificationStore.shared.icon, title: NotificationStore.shared.title)
-            notificationView?.showMore(NotificationStore.shared.count > 1)
+            notificationView?.showNotification()
         }
     }
 
