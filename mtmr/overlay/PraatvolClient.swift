@@ -156,9 +156,20 @@ struct PraatvolDisplay {
     let snapshot: PraatvolSnapshot?
     var now: Double = Date().timeIntervalSince1970
     var savedAt: Double? = nil
+    static let savedFlashSeconds: Double = 4
     var savedFlash: Bool {
-        guard snapshot?.step == .saved, let savedAt = savedAt else { return false }
-        return now < savedAt + 4
+        guard snapshot?.step == .saved else { return false }
+        if let stepStartedAt = snapshot?.stepStartedAt { return Self.isRecentSave(startedAt: stepStartedAt, now: now) }
+        guard let savedAt = savedAt else { return false }
+        return now < savedAt + Self.savedFlashSeconds
+    }
+    static func isRecentSave(startedAt: Double, now: Double) -> Bool {
+        guard startedAt.isFinite else { return false }
+        let ageSeconds = now - startedAt
+        // #COMPLETION_DRIVE: praatvol's clock may run up to 2 s ahead of this Mac's clock; such saves count as just saved.
+        // #SUGGEST_VERIFY: Compare praatvol's stepStartedAt with Date() on the same Mac to confirm the 2 s allowance is needed.
+        if ageSeconds < -2 { return false }
+        return max(0, ageSeconds) < savedFlashSeconds
     }
     var review: Bool { return snapshot?.step == .review }
     var offline: Bool { return snapshot == nil }
@@ -246,13 +257,19 @@ struct PraatvolDisplay {
     }
 }
 
+/// Only a live transition into `saved` on this connection counts. A panel's first snapshot never flashes,
+/// so recreating the panel while praatvol sits in `saved` does not replay the flash.
 struct PraatvolSavedReceipt {
     private var step: PraatvolSnapshot.Step?
     private(set) var savedAt: Double?
 
     mutating func receive(_ snapshot: PraatvolSnapshot?, at now: Double) {
-        if snapshot?.step != step { savedAt = snapshot?.step == .saved ? now : nil }
-        step = snapshot?.step
+        let nextStep = snapshot?.step
+        if nextStep != step {
+            let isLiveTransition = step != nil && step != .saved
+            savedAt = nextStep == .saved && isLiveTransition ? now : nil
+        }
+        step = nextStep
     }
 }
 
@@ -268,6 +285,14 @@ struct PraatvolStopConfirmation {
         return false
     }
     mutating func reset() { expiresAt = nil }
+}
+
+/// Icon-only Stop is 44 pt; the confirmation word needs its measured width plus bezel padding, rounded up.
+func praatvolStopButtonWidth(confirmationTextWidth: CGFloat?) -> CGFloat {
+    let iconOnlyWidth: CGFloat = 44
+    let bezelPadding: CGFloat = 34
+    guard let textWidth = confirmationTextWidth else { return iconOnlyWidth }
+    return max(iconOnlyWidth, (textWidth + bezelPadding).rounded(.up))
 }
 
 /// One subscription while visible. Commands use separate, short-lived sockets and are never retried:

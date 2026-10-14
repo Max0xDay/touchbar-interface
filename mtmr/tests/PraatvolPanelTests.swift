@@ -5,6 +5,7 @@ struct PraatvolPanelTests {
     static func main() throws {
         try checkSnapshots()
         try checkAddendum()
+        try checkSavedFlashRecency()
         try checkFraming()
         checkTimeAndConfirmation()
         if CommandLine.arguments.count > 1 {
@@ -134,15 +135,42 @@ struct PraatvolPanelTests {
         precondition(answered.errorText == "Already answered")
         var receipt = PraatvolSavedReceipt()
         receipt.receive(saved.snapshot, at: 1000)
-        precondition(receipt.savedAt == 1000)
+        precondition(receipt.savedAt == nil, "A first snapshot of saved must not flash")
+        receipt.receive(try display(step: "transcribing").snapshot, at: 1001)
+        receipt.receive(saved.snapshot, at: 1002)
+        precondition(receipt.savedAt == 1002, "A live transition into saved must flash")
         receipt.receive(saved.snapshot, at: 1003)
-        precondition(receipt.savedAt == 1000, "Repeated saved pushes must not extend the flash")
+        precondition(receipt.savedAt == 1002, "Repeated saved pushes must not extend the flash")
         receipt.receive(review.snapshot, at: 1004)
         precondition(receipt.savedAt == nil)
         receipt.receive(saved.snapshot, at: 1005)
         precondition(receipt.savedAt == 1005)
         receipt.receive(nil, at: 1006)
         precondition(receipt.savedAt == nil)
+    }
+
+    private static func checkSavedFlashRecency() throws {
+        let recentSave = try display(step: "saved", fields: ["stepStartedAt": 1059.0], now: 1060)
+        precondition(recentSave.savedFlash && !recentSave.canStart, "Saved one second ago must flash")
+        let staleSave = try display(step: "saved", fields: ["stepStartedAt": 1055.0], now: 1060)
+        precondition(!staleSave.savedFlash && staleSave.canStart, "Saved five seconds ago must not flash")
+        let oldSaveOnNewPanel = try display(step: "saved", fields: ["stepStartedAt": 1000.0], now: 1060)
+        precondition(!oldSaveOnNewPanel.savedFlash && oldSaveOnNewPanel.canStart,
+                     "A new panel seeing an old saved state must show idle buttons")
+        let slightlyFutureSave = try display(step: "saved", fields: ["stepStartedAt": 1061.5], now: 1060)
+        precondition(slightlyFutureSave.savedFlash, "A save up to 2 s in the future counts as recent")
+        let farFutureSave = try display(step: "saved", fields: ["stepStartedAt": 1063.0], now: 1060)
+        precondition(!farFutureSave.savedFlash, "A save more than 2 s in the future is not recent")
+        let legacyFirstSnapshot = try display(step: "saved", now: 1060, savedAt: nil)
+        precondition(!legacyFirstSnapshot.savedFlash && legacyFirstSnapshot.canStart,
+                     "Without stepStartedAt, a first snapshot of saved must not flash")
+        var legacyReceipt = PraatvolSavedReceipt()
+        legacyReceipt.receive(try display(step: "transcribing").snapshot, at: 1000)
+        legacyReceipt.receive(try display(step: "saved").snapshot, at: 1001)
+        let flashing = try display(step: "saved", now: 1004.9, savedAt: legacyReceipt.savedAt)
+        precondition(flashing.savedFlash, "Legacy live transition must flash for 4 s")
+        let expired = try display(step: "saved", now: 1005, savedAt: legacyReceipt.savedAt)
+        precondition(!expired.savedFlash && expired.canStart, "Legacy flash must end after 4 s")
     }
 
     private static func checkFraming() throws {
@@ -174,6 +202,10 @@ struct PraatvolPanelTests {
         precondition(!confirmation.tap(at: 23), "Expiry must re-arm, not stop")
         confirmation.reset()
         precondition(!confirmation.isPending(at: 23))
+        precondition(praatvolStopButtonWidth(confirmationTextWidth: nil) == 44, "Icon-only Stop keeps 44 pt")
+        precondition(praatvolStopButtonWidth(confirmationTextWidth: 5) == 44, "Short text never shrinks below 44 pt")
+        precondition(praatvolStopButtonWidth(confirmationTextWidth: 40.1) == 75, "Padding is added, then rounded up")
+        precondition(praatvolStopButtonWidth(confirmationTextWidth: 40) == 74, "Exact padding sum is not rounded further")
         precondition(PraatvolAppOptions().socketPath.hasSuffix("/praatvol/control.sock"))
         precondition(PraatvolAppOptions(app: .dev).socketPath.hasSuffix("/praatvol-dev/control.sock"))
         let recording = PraatvolSnapshot(v: 1, step: .recording, kind: .room, startedAt: nil, elapsedSeconds: 61,

@@ -22,6 +22,10 @@ final class AppControlsPraatvolPanel: NSView, AppControlsPanel {
     private var confirmationTimer: Timer?
     private var commandMessage: String?
     private var messageExpiresAt: Double = 0
+    private var stopWidth: CGFloat = praatvolStopButtonWidth(confirmationTextWidth: nil)
+    private static let stopConfirmationAttributes: [NSAttributedString.Key: Any] = [
+        .font: NSFont.systemFont(ofSize: 11, weight: .medium), .foregroundColor: AppControlsStyle.bad
+    ]
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -109,7 +113,7 @@ final class AppControlsPraatvolPanel: NSView, AppControlsPanel {
             let width = max(0, (bounds.width - 8) / 2)
             AppControlsStyle.row([(room, width), (call, width)], in: bounds, gap: 8)
         } else if display.showsStop {
-            AppControlsStyle.row([(readout, nil), (stop, 44)], in: bounds, gap: 8)
+            AppControlsStyle.row([(readout, nil), (stop, stopWidth)], in: bounds, gap: 8)
         } else if display.review {
             AppControlsStyle.row([(readout, nil), (transcribe, 56), (skip, 56)], in: bounds, gap: 8)
         } else {
@@ -136,9 +140,12 @@ final class AppControlsPraatvolPanel: NSView, AppControlsPanel {
         if !display.canStop { clearConfirmation() }
         let confirming = confirmation.isPending(at: now)
         stop.imagePosition = confirming ? .noImage : .imageOnly
-        stop.attributedTitle = NSAttributedString(string: confirming ? "Stop?" : "", attributes: [
-            .font: NSFont.systemFont(ofSize: 11, weight: .medium), .foregroundColor: AppControlsStyle.bad
-        ])
+        let stopTitle = confirming ? "Stop?" : ""
+        stop.attributedTitle = NSAttributedString(string: stopTitle, attributes: Self.stopConfirmationAttributes)
+        // #COMPLETION_DRIVE: Bezel padding of 34 pt is assumed for the rounded Touch Bar button; the title is centred by NSButton.
+        // #SUGGEST_VERIFY: Check the "Stop?" button is not clipped and is centred on the real bar.
+        let stopTextWidth = confirming ? (stopTitle as NSString).size(withAttributes: Self.stopConfirmationAttributes).width : nil
+        stopWidth = praatvolStopButtonWidth(confirmationTextWidth: stopTextWidth)
         let elapsed = snapshot?.elapsed(at: Date().timeIntervalSince1970, receivedAt: receivedAt) ?? 0
         readout.show(display, elapsed: elapsed, message: message)
         needsLayout = true
