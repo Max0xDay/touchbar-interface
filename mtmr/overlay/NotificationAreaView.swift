@@ -26,6 +26,7 @@ final class NotificationAreaView: NSView {
     private static let iconGap: CGFloat = 6
     /// A small pulsing dot at the top right while more than one notification is live.
     private let moreDot = CALayer()
+    private let unreadDot = CALayer()
     private var moreShown = false
     private var icon: NSImage?
     private var targetIcon: NSImage?
@@ -85,6 +86,10 @@ final class NotificationAreaView: NSView {
         moreDot.cornerRadius = 2
         moreDot.isHidden = true
         layer?.addSublayer(moreDot)
+        unreadDot.backgroundColor = NSColor(white: 1, alpha: 0.4).cgColor
+        unreadDot.cornerRadius = 2.5
+        unreadDot.isHidden = true
+        layer?.addSublayer(unreadDot)
         setContentHuggingPriority(.init(1), for: .horizontal)
         setContentCompressionResistancePriority(.init(1), for: .horizontal)
         NotificationDebug.hierarchy(self)
@@ -128,12 +133,22 @@ final class NotificationAreaView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         moreDot.frame = NSRect(x: bounds.maxX - 7, y: bounds.maxY - 7, width: 4, height: 4)
+        // #COMPLETION_DRIVE: Centre the unread dot in the empty area as the recall affordance.
+        // #SUGGEST_VERIFY: Check the dim 5 pt dot's visibility and tap recall on the physical Touch Bar.
+        unreadDot.frame = NSRect(x: bounds.midX - 2.5, y: bounds.midY - 2.5, width: 5, height: 5)
         CATransaction.commit()
         positionContent()
         updateText(animated: false)
         if NotificationDebug.enabled {
             NSLog("MTMR-notif: area=%@ label=%@", NSStringFromRect(frame), NSStringFromRect(label.frame))
         }
+    }
+
+    func showNotification() {
+        let store = NotificationStore.shared
+        show(text: store.text, icon: store.icon, title: store.title)
+        showMore(store.isShowing ? store.count > 1 : false)
+        unreadDot.isHidden = !store.hasUnread
     }
 
     func show(text: String, icon: NSImage? = nil, title: String? = nil) {
@@ -348,6 +363,7 @@ final class NotificationAreaView: NSView {
                     navigateSwipe()
                 }
                 if phase == .ended {
+                    if !movedDuringSwipe { NotificationStore.shared.showNewestHidden() }
                     finishSwipe()
                 } else if phase == .cancelled {
                     finishSwipe()

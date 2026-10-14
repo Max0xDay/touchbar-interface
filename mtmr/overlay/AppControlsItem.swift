@@ -21,6 +21,7 @@ enum AppControlsRegistry {
         AppControlsStatsPanel.self,
         AppControlsLobPanel.self,
         AppControlsFanPanel.self,
+        AppControlsPraatvolPanel.self,
     ]
     static let fallbackId = AppControlsSystemPanel.id
 
@@ -35,13 +36,15 @@ struct AppControlsOptions: Decodable, Equatable {
     let panels: [String]
     /// Which edge of the zone holds the switcher button.
     let switcher: Side
+    let praatvol: PraatvolAppOptions
 
-    init(panels: [String] = AppControlsRegistry.panels.map { $0.id }, switcher: Side = .left) {
+    init(panels: [String] = AppControlsRegistry.panels.map { $0.id }, switcher: Side = .left, praatvol: PraatvolAppOptions = PraatvolAppOptions()) {
         self.panels = panels
         self.switcher = switcher
+        self.praatvol = praatvol
     }
 
-    private enum CodingKeys: String, CodingKey { case panels, switcher }
+    private enum CodingKeys: String, CodingKey { case panels, switcher, praatvol }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -53,7 +56,8 @@ struct AppControlsOptions: Decodable, Equatable {
             throw DecodingError.dataCorruptedError(forKey: .panels, in: container, debugDescription: "panels must not be empty")
         }
         let switcher = try container.decodeIfPresent(Side.self, forKey: .switcher) ?? .left
-        self.init(panels: panels, switcher: switcher)
+        let praatvol = try container.decodeIfPresent(PraatvolAppOptions.self, forKey: .praatvol) ?? PraatvolAppOptions()
+        self.init(panels: panels, switcher: switcher, praatvol: praatvol)
     }
 }
 
@@ -203,6 +207,7 @@ final class AppControlsView: NSView {
         guard let panelType = AppControlsRegistry.panel(id) else { return }
         if let current = panel, type(of: current).id == id { return }
         let next = panelType.init(frame: content.bounds)
+        (next as? AppControlsPraatvolPanel)?.configure(options.praatvol)
         next.autoresizingMask = [.width, .height]
         let previous = panel
         panel = next

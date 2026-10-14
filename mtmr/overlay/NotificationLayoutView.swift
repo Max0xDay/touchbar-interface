@@ -24,6 +24,8 @@ final class NotificationLayoutView: NSView {
     private var hostConstraints: [NSLayoutConstraint] = []
     private var solvedWidth: Double?
     private var visibilityObserver: NSObjectProtocol?
+    private var volumeSlider: VolumeSliderView?
+    private weak var volumeButton: VolumeButton?
 
     init(items: [NSTouchBarItem], definitions: [NSTouchBarItem.Identifier: BarItemDefinition], notification: NotificationTouchBarItem) {
         left = Self.buttons(items, definitions: definitions, alignment: .left)
@@ -73,6 +75,40 @@ final class NotificationLayoutView: NSView {
         needsLayout = true
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { closeVolumeSlider() }
+    }
+
+    func openVolumeSlider(for button: VolumeButton) {
+        guard left.contains(where: { $0.view === button }) else { return }
+        closeVolumeSlider()
+        volumeButton = button
+        let slider = VolumeSliderView(controller: button.controller) { [weak self] in self?.closeVolumeSlider() }
+        volumeSlider = slider
+        button.slider = slider
+        addSubview(slider, positioned: .above, relativeTo: nil)
+        layoutVolumeSlider()
+        slider.resetIdleTimer()
+    }
+
+    private func layoutVolumeSlider() {
+        guard let slider = volumeSlider, let button = volumeButton else { return }
+        guard !button.isHidden else {
+            closeVolumeSlider()
+            return
+        }
+        slider.frame = VolumeControlGeometry.overlayFrame(button: button.frame, notificationLeft: notificationView.frame.minX)
+        slider.needsDisplay = true
+        if slider.frame.width == 0 { closeVolumeSlider() }
+    }
+
+    private func closeVolumeSlider() {
+        volumeSlider?.removeFromSuperview()
+        volumeSlider = nil
+        volumeButton = nil
+    }
+
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         needsLayout = true
@@ -98,6 +134,7 @@ final class NotificationLayoutView: NSView {
         for (button, frame) in zip(visibleLeft, solution.left) { apply(frame, to: button.view, visible: button.visible, duration: duration) }
         for (button, frame) in zip(visibleRight, solution.right) { apply(frame, to: button.view, visible: button.visible, duration: duration) }
         apply(solution.notification, to: notificationView, visible: true, duration: duration)
+        layoutVolumeSlider()
         notificationView.layoutSubtreeIfNeeded()
         if NotificationDebug.enabled {
             let labelFrame = notificationView.subviews.first?.frame ?? .zero

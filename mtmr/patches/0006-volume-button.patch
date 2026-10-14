@@ -1,0 +1,15 @@
+--- a/TouchBarController.swift
++++ b/TouchBarController.swift
+@@ -421,11 +421,7 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
+                 barItem = AppScrubberTouchBarItem(identifier: identifier, autoResize: autoResize)
+             }
+         case .volume:
+-            if case let .image(source)? = item.additionalParameters[.image] {
+-                barItem = VolumeViewController(identifier: identifier, image: source.image)
+-            } else {
+-                barItem = VolumeViewController(identifier: identifier)
+-            }
++            barItem = VolumeTouchBarItem(identifier: identifier)
+         case let .brightness(refreshInterval: interval):
+             if case let .image(source)? = item.additionalParameters[.image] {
+                 barItem = BrightnessViewController(identifier: identifier, refreshInterval: interval, image: source.image)

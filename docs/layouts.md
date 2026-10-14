@@ -5,7 +5,7 @@ The repository has two layouts in `layouts/`:
 | Layout | File | Purpose |
 |---|---|---|
 | Template | `layouts/template.json` | Reference for spacing and look: ✕, gap, three shape placeholders, notification area, two temporary buttons. Change the template only for a deliberate experiment. |
-| Actual | `layouts/actual.json` | The everyday bar: ✕, gap, Teams mic, notification area, App Controls ([app-controls.md](app-controls.md)). |
+| Actual | `layouts/actual.json` | The everyday bar: ✕, gap, volume, Teams mic and camera, notification area, App Controls ([app-controls.md](app-controls.md)). |
 
 ## Switch the layout
 
@@ -23,6 +23,10 @@ bin/tbctl layout actual --dry-run   # print the rendered file, change nothing
 3. It writes the new content into `items.json` in place. MTMR reloads the bar at once.
 
 Rollback: run `bin/tbctl layout template`, or copy a file from `layout-backups/` back to `items.json`.
+
+## Volume button
+
+The actual layout places `{ "type": "volume", "align": "left", "width": 75, "id": "volume" }` after the spacer and before the Teams mic and camera. It is always visible, uses the normal left-button shrinking rules, and shows a grey speaker (slashed when muted or at zero). Tap it to open a 30 pt-high slider over the left buttons, from the volume button to 16 pt before the notification area; covered buttons cannot receive touches. Drag to change the default output device's volume live, tap the speaker to toggle mute, or tap the right-hand ✕ to close; it also closes after 6 seconds without touch. Keyboard/app volume changes and output-device changes update the control. Devices without writable volume show a disabled track; mute is disabled when unsupported. `type`, `align` and `width` use the standard item fields, `id` is optional layout identity (not a socket-driven live button), and there are no volume-specific options. This replaces upstream's permanent `volume` slider and requires the notification layout host.
 
 ## Welcome notification
 
@@ -47,7 +51,7 @@ The notification item accepts a `mirror` object. With `mirror`, MTMR shows every
 }
 ```
 
-- `stickyApps`: notifications from these apps stay `stickySeconds` (default 600 = 10 minutes). Other notifications stay `defaultSeconds`.
+- `stickyApps`: notifications from these apps remain live for `stickySeconds` (default 600 = 10 minutes), but each showing lasts at most 8 seconds. Other notifications remain live for `defaultSeconds`.
 - `lobApps`: notifications from these apps show the lob icon. lob sessions send their notifications through kitty. Claude's notification does not say which session sent it, so the mirror credits the lob session that most recently stopped working (the green pill): the heading is that session's folder (the working directory of its Claude process), and "Claude is waiting for your input" becomes "lob is awaiting response". With no finished session the notification stays as Claude sent it. Two sessions that finish close together can be mixed up.
 - `ignoreApps`: MTMR does not show notifications from these apps.
 - If a notification has a title and a body, the bar shows two lines: the title as a heading, and the body smaller below. If it has only one of them, the bar shows one line.
@@ -55,12 +59,13 @@ The notification item accepts a `mirror` object. With `mirror`, MTMR shows every
 
 ## Notification queue
 
-- A new notification shows at once.
+- A new notification shows at once, for at most 8 seconds or its remaining lifetime, whichever is shorter.
 - Each notification counts down on its own. A 10-minute notification never holds back a newer one.
-- When the shown notification expires, the newest remaining one shows.
-- Swipe left or right to move through all live notifications. A touch on the area pauses every countdown.
-- If more than one notification is live, a small pulsing dot shows at the top right of the area.
-- Notifications leave the bar only when their countdown ends. Dismissing the notification on the Mac does not remove it from the bar.
+- After its display countdown ends, the notification fades out and the area goes empty. It remains live/unread until its own lifetime ends.
+- While the area is empty and live notifications remain, a dim, non-pulsing 5 pt dot shows in the centre. Tap anywhere in the area to recall the newest hidden notification for up to 8 seconds without resetting its lifetime.
+- Swipe left or right to move through all live notifications; each showing starts a fresh display countdown of up to 8 seconds. A touch on the area pauses both display and lifetime countdowns.
+- While a notification is visible and more than one notification is live, a small pulsing dot shows at the top right of the area.
+- Notifications are removed only when their lifetime countdown ends. With no live notifications, the unread dot disappears. A `tbctl notify` with `--seconds 3` expires after 3 seconds with no unread dot left for that entry. Dismissing the notification on the Mac does not remove it from the queue.
 
 ## Two-line notifications from scripts
 

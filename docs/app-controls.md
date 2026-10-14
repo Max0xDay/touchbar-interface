@@ -16,6 +16,7 @@ The user picks the panel. The panel does not follow the frontmost app. The choic
 | System | `system` | Clock tile (graphite tile, white clock at 10:10) | Three columns: time with seconds, weekday over date, and a bullet list with the ISO week and battery level. | Nothing |
 | YouTube Music | `ytmusic` | Pear app icon | Cover, title, artist, a thin progress line, and the previous / play-pause / next buttons. | Cover or title: brings Pear to the front, or opens Pear if it does not run. |
 | VS Code | `vscode` | VS Code icon | A window toggle, a Run button (▶), and a command button (⌘). The window toggle shows the current window in the colour of that window: a colour stripe, the project name, the open file, and one coloured dot for each window. The current window has the large dot with a white ring. | Window toggle: goes to the next window. If VS Code is not in front, the first tap brings the current window to the front. Run: presses F5 (Run > Start Debugging). Command button: opens the Command Palette (⇧⌘P). |
+| praatvol | `praatvol` | Waveform tile (graphite tile, white waveform; switcher only) | Full-width Room/Call buttons when idle. Recording: red pulsing dot, elapsed time, Room/Call pill, microphone and signal dots. Processing: spinner and progress line. Review: “Transcribe?” with duration/size or a warning. Offline: centred grey text. Saved: green check for 4 s. | Room/Call: start recording. Stop: tap twice within 3 s while recording, once during setup. Review checkmark: Transcribe; cross: Skip (keep audio only). |
 | Stats | `stats` | Stats app icon | Four cells: CPU (a ring with the total and a heat grid with one square for each core: efficiency cores on top, performance cores below), MEM (a ring with the %), TEMP (a thermometer and the CPU temperature), and NET (download and upload rate). | Opens the Stats app. |
 | lob | `lob` | Terminal tile (orange ">_" on black) | One pill for each lob session: a blue spinner while Claude works, a slow purple arc while pi-delegate runs, a pulsing green dot when Claude finishes and waits for a reply, a grey dot when idle. Always a two-row grid with the same cell size as 4 sessions: 3 sessions leave the top-left cell empty, 1 to 2 stack in the left column, 5 or more add columns. | Nothing |
 | Fan | `fan` | Fan tile (graphite tile, white fan) | A mode button (Apple, Quiet, Cool, Max, Custom); a graph of the last 2 minutes: the temperature line, the actual fan speed (blue area), the speed the mode asks for (dashed blue), and dashed lines at the mode's thresholds (fan on, full speed) and at the 95 °C floor (red); the temperature over the fan RPM. Temperature uses 30–100 °C and fan speed 0–100 % of the same height. In Custom, the graph is replaced by a slider. | Mode button: opens a row with all five modes (current one in the accent colour); tap one to select it. The row closes after 6 s. Custom: touch or drag the slider to set the fan speed. |
@@ -51,6 +52,33 @@ To close the row without a change, tap the switcher button (✕) again. The row 
   - Temperature: the mean of the performance-core and efficiency-core sensors (`pACC` / `eACC`). These are the same sensors that the Stats app uses on M1.
   - GPU: "Device Utilization %" of the graphics accelerator (IOAccelerator).
   - NET: the byte counters of all network interfaces except loopback, between two refreshes.
+
+## praatvol
+
+The panel reads the praatvol control socket, not the MTMR socket. Release uses `~/Library/Application Support/praatvol/control.sock`. Dev uses `~/Library/Application Support/praatvol-dev/control.sock`.
+
+Set `"praatvol": {"app": "dev"}` on the `appControls` layout item to use dev. `"release"` is the default. The everyday layout uses dev for now. VS Code stays registered and can be restored to the layout.
+
+The protocol is newline-delimited JSON, at most 4 KiB per line. One `subscribe` connection receives a snapshot on connection, on changes and every second while recording. The client accepts wrapped `{"ok":true,"status":...}` replies and bare snapshots. It reconnects after 2 s while the panel is on the bar and disconnects when the panel leaves the bar. New snapshot fields are optional and may be null; v1 snapshots without them still work. Unknown step strings show a spinner and the capitalised step name rather than failing the connection.
+
+The panel is 30 pt tall, with 8 pt horizontal gaps and measured, vertically centred text rows. There is no left-hand waveform glyph; the tile remains in the switcher only. Text never shrinks and long labels truncate with an ellipsis.
+
+| State | Display and controls |
+|---|---|
+| Offline | Centred grey “praatvol offline” across the panel. |
+| Idle / failed | Two equal-width neutral buttons fill the panel: mic + Room and phone + Call. A failed run adds a small red dot inside the Room button. |
+| Starting | Spinner + “Starting”, with a Stop button that cancels on one tap. |
+| Recording | Row 1: pulsing red dot, monospaced elapsed time and grey Room/Call pill. Row 2: microphone name and signal dots. Stop is 30 pt tall with a red glyph; first tap shows red “Stop?” for 3 s, second tap sends stop. |
+| Preparing / uploading / transcribing | Spinner and a 12 pt label above a thin rounded progress line. Preparing uses `preparingFraction`; uploading uses `uploadFraction` and shows a percent. Transcribing estimates `(now - stepStartedAt) / estimatedSeconds` locally each second, capped at 95%, with a `~` prefix. Missing fractions or estimate fields leave the track empty and the spinner running, with no percent. Preparing/uploading cap at 99% while the step is active; no step shows 100% before changing. |
+| Review | “Transcribe?” above duration (`mm:ss` or `h:mm:ss`) and size (decimal MB, one decimal), omitting missing values. If `warnings` is non-empty, an orange triangle and the first truncated warning replace the detail row. Two 56 pt buttons: green checkmark (Transcribe) and neutral cross (Skip). They remain until a pushed snapshot changes the state. |
+| Needs attention | Orange triangle inline with “Needs attention on Mac”; command buttons are disabled. |
+| Saved | Green check + “Saved” for 4 s from local receipt of the step change, then the idle buttons. Repeated saved snapshots do not extend the flash. |
+
+Buttons send `record-room`, `record-call`, `stop`, `transcribe` or `keep` on short-lived background connections. Review checkmark sends `{"cmd":"transcribe"}`; Skip sends `{"cmd":"keep"}` to save audio without transcription. Both are valid only in review. Commands are not retried or shown optimistically. Command errors show a short message for 2 s; `notReviewing` shows “Already answered”. Green signal dots mean audio is present, hollow grey dots mean silence, and orange means more than 10 s of silence.
+
+Review and the new progress fields require praatvol to implement control protocol addendum v1.1 (`stepStartedAt`, `estimatedSeconds`, `preparingFraction`, `durationSeconds`, `uploadBytes`, `warnings`). Until then the old flow remains supported; no review controls appear unless praatvol pushes `review`.
+
+Focused checks: `python3 -I mtmr/tests/test-praatvol.py`. The normal test runner discovers this test automatically. Tests use only a temporary fake socket.
 
 ## Fan
 
@@ -95,7 +123,8 @@ bin/tbctl fan custom --percent 30
   "align": "right",
   "width": 340,
   "switcher": "right",
-  "panels": ["system", "lob", "ytmusic", "vscode", "stats", "fan"]
+  "panels": ["system", "lob", "ytmusic", "praatvol", "stats", "fan"],
+  "praatvol": {"app": "dev"}
 }
 ```
 
@@ -140,7 +169,7 @@ Follow these rules for a panel:
 
 - Use the helpers in `AppControlsKit.swift`: `AppControlsStyle` for labels, buttons, and colours, `AppControlsApps` for app icons and app launches, and `AppControlsMeterView` for meters.
 - Keep `refresh()` fast. `refresh()` runs on the main thread. Use an asynchronous call for slow data, as `NowPlaying` does.
-- Start no timers in the panel. The zone calls `refresh()` only while the panel is on the bar.
+- Let the zone drive periodic `refresh()` calls only while the panel is on the bar. Short action timers, such as Stop confirmation, must be cancelled when the panel leaves the bar.
 
 ## Files
 
@@ -152,6 +181,8 @@ Follow these rules for a panel:
 | `mtmr/overlay/AppControlsSystemPanel.swift` | System panel |
 | `mtmr/overlay/AppControlsMusicPanel.swift` | `NowPlaying` (MediaRemote) and the YouTube Music panel |
 | `mtmr/overlay/AppControlsCodePanel.swift` | VS Code panel |
+| `mtmr/overlay/AppControlsPraatvolPanel.swift` | praatvol panel, recording readout and Stop confirmation |
+| `mtmr/overlay/PraatvolClient.swift` | praatvol socket client, options, snapshots, line framing and display model |
 | `mtmr/overlay/AppControlsStatsPanel.swift` | Stats panel, `SystemMetrics`, temperature sensors |
 | `mtmr/overlay/AppControlsLobPanel.swift` | lob panel, `LobMonitor`, session chips, lob icon |
 | `mtmr/overlay/AppControlsFanPanel.swift` | Fan panel, `FanController` (curves), `ThermalForgeClient` (daemon socket) |
