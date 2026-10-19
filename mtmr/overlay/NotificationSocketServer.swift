@@ -24,6 +24,9 @@ final class NotificationSocketServer {
         let title: String?
         /// Bundle id whose app icon shows with the notification, e.g. "com.microsoft.teams2".
         let app: String?
+        let count: Int?
+        let color: String?
+        let style: String?
     }
 
     /// Extra commands registered by features (e.g. App Controls). Runs on the main queue with the whole
@@ -245,6 +248,8 @@ final class NotificationSocketServer {
                 guard NotificationStore.shared.notify(text: text, seconds: command.seconds, icon: command.app.flatMap(Self.appIcon), title: command.title) else {
                     return rejected("Notification queue is full (256 entries)")
                 }
+            case "particles":
+                return playParticles(command)
             case "clear":
                 NotificationStore.shared.clear()
             case "button":
@@ -274,6 +279,27 @@ final class NotificationSocketServer {
             NSLog("MTMR socket invalid JSON: %@", String(describing: error))
             return ["ok": false, "error": "Invalid JSON command"]
         }
+    }
+
+    private func playParticles(_ command: Command) -> Reply {
+        let count = command.count ?? 30
+        guard (1...200).contains(count) else { return rejected("count must be 1-200") }
+        let seconds = command.seconds ?? 5.5
+        guard seconds.isFinite else { return rejected("seconds must be finite") }
+        guard (0.5...10).contains(seconds) else { return rejected("seconds must be 0.5-10") }
+        let style = command.style ?? "dots"
+        guard ["dots", "sparks"].contains(style) else { return rejected("style must be dots or sparks") }
+        let colorHex = command.color ?? "#34C759"
+        guard colorHex.range(of: "^#[0-9a-fA-F]{6}$", options: .regularExpression) != nil,
+              let colorValue = UInt32(colorHex.dropFirst(), radix: 16) else {
+            return rejected("color requires #rrggbb")
+        }
+        let color = NSColor(srgbRed: CGFloat((colorValue >> 16) & 255) / 255,
+                            green: CGFloat((colorValue >> 8) & 255) / 255,
+                            blue: CGFloat(colorValue & 255) / 255, alpha: 1)
+        NotificationCenter.default.post(name: Notification.Name("MTMRParticles"), object: nil,
+                                        userInfo: ["count": count, "seconds": seconds, "color": color, "style": style])
+        return ["ok": true]
     }
 
     private static func appIcon(_ bundleId: String) -> NSImage? {
