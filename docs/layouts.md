@@ -5,7 +5,7 @@ The repository has two layouts in `layouts/`:
 | Layout | File | Purpose |
 |---|---|---|
 | Template | `layouts/template.json` | Reference for spacing and look: ✕, gap, three shape placeholders, notification area, two temporary buttons. Change the template only for a deliberate experiment. |
-| Actual | `layouts/actual.json` | The everyday bar: universal control, gap, Teams mic and camera, notification area, App Controls ([app-controls.md](app-controls.md)). |
+| Actual | `layouts/actual.json` | The everyday bar: universal control, gap, notification area, App Controls (including Teams) ([app-controls.md](app-controls.md)). |
 
 ## Switch the layout
 
@@ -26,7 +26,7 @@ Rollback: run `bin/tbctl layout template`, or copy a file from `layout-backups/`
 
 ## Universal control button
 
-The actual layout starts with `{ "type": "volume", "align": "left", "width": 30, "id": "volume" }`, followed by the existing spacer (preserving the doubled gap), then Teams mic and camera. The always-visible 30 × 30 button shows a white sliders glyph and does not shrink. The `volume` item type is retained for compatibility with patch 0006; it now replaces both the old exit button and the separate volume button.
+The actual layout starts with `{ "type": "volume", "align": "left", "width": 30, "id": "volume" }`, followed by the existing spacer (preserving the doubled gap), then the notification area. Teams mic/camera are in the right-side App Controls panel, with one event-driven watcher on that item. The always-visible 30 × 30 button shows a white sliders glyph and does not shrink. The `volume` item type is retained for compatibility with patch 0006; it now replaces both the old exit button and the separate volume button.
 
 - Tap replaces the main bar with a separate full-width control page using MTMR's group-style modal presentation. No notifications, App Controls, extra buttons or close glyph appear on this page.
 - Left to right: the same 30 × 30 media button, brightness slider, volume slider. Both sliders are plain AppKit `NSSliderTouchBarItem`s with no custom cells or drawing, no labels, and standard item spacing. Each slider is 200 pt total, including both accessories, enforced by a required width on the native item container. A trailing flexible spacer keeps the controls left-aligned and the rest of the page empty. Their SF Symbol accessories are `sun.min.fill` / `sun.max.fill` and `speaker.fill` / `speaker.wave.3.fill`, rendered white through `TouchBarIcon` in the bar's 18 pt icon box, with default accessory widths.

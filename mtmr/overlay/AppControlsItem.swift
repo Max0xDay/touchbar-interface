@@ -16,6 +16,7 @@ protocol AppControlsPanel: NSView {
 enum AppControlsRegistry {
     static let panels: [AppControlsPanel.Type] = [
         AppControlsSystemPanel.self,
+        AppControlsTeamsPanel.self,
         AppControlsMusicPanel.self,
         AppControlsCodePanel.self,
         AppControlsStatsPanel.self,
@@ -37,14 +38,16 @@ struct AppControlsOptions: Decodable, Equatable {
     /// Which edge of the zone holds the switcher button.
     let switcher: Side
     let praatvol: PraatvolAppOptions
+    let teams: TeamsPanelOptions
 
-    init(panels: [String] = AppControlsRegistry.panels.map { $0.id }, switcher: Side = .left, praatvol: PraatvolAppOptions = PraatvolAppOptions()) {
+    init(panels: [String] = AppControlsRegistry.panels.map { $0.id }, switcher: Side = .left, praatvol: PraatvolAppOptions = PraatvolAppOptions(), teams: TeamsPanelOptions = TeamsPanelOptions()) {
         self.panels = panels
         self.switcher = switcher
         self.praatvol = praatvol
+        self.teams = teams
     }
 
-    private enum CodingKeys: String, CodingKey { case panels, switcher, praatvol }
+    private enum CodingKeys: String, CodingKey { case panels, switcher, praatvol, teams }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -57,7 +60,8 @@ struct AppControlsOptions: Decodable, Equatable {
         }
         let switcher = try container.decodeIfPresent(Side.self, forKey: .switcher) ?? .left
         let praatvol = try container.decodeIfPresent(PraatvolAppOptions.self, forKey: .praatvol) ?? PraatvolAppOptions()
-        self.init(panels: panels, switcher: switcher, praatvol: praatvol)
+        let teams = try container.decodeIfPresent(TeamsPanelOptions.self, forKey: .teams) ?? TeamsPanelOptions()
+        self.init(panels: panels, switcher: switcher, praatvol: praatvol, teams: teams)
     }
 }
 
@@ -74,9 +78,10 @@ final class AppControlsSelection {
         id = AppControlsRegistry.panel(stored) == nil ? AppControlsRegistry.fallbackId : stored
     }
 
-    func select(_ id: String) throws {
+    func select(_ id: String, automatic: Bool = false) throws {
         dispatchPrecondition(condition: .onQueue(.main))
         guard AppControlsRegistry.panel(id) != nil else { throw LiveButtonError(message: "unknown app panel: \(id)") }
+        if !automatic { TeamsPanelController.shared.autoSelection.manuallySelected() }
         guard id != self.id else { return }
         self.id = id
         UserDefaults.standard.set(id, forKey: Self.defaultsKey)
@@ -104,6 +109,7 @@ final class AppControlsTouchBarItem: NSCustomTouchBarItem {
     init(identifier: NSTouchBarItem.Identifier, options: AppControlsOptions) {
         super.init(identifier: identifier)
         AppControlsSelection.registerSocketCommands()
+        if options.panels.contains(AppControlsTeamsPanel.id) { TeamsPanelController.shared.configure(options.teams) }
         view = AppControlsView(options: options)
     }
 

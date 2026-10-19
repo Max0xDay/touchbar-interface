@@ -1,4 +1,4 @@
-# Live buttons and Teams mic
+# Live buttons and watchers
 
 Patch `0004-live-buttons.patch` and the live-button overlays extend the existing
 0600 Unix socket. Commands run on the main thread and do not call `reloadPreset`
@@ -65,7 +65,7 @@ upstream implements it; use a `staticButton` when the socket is to own its appea
 Group child buttons bind when their sub-bar is opened. The native collapsed group
 view path is tagged for hardware verification.
 
-Taps use existing MTMR `actions`; there is no new tap transport. The Teams item is:
+Taps use existing MTMR `actions`; there is no new tap transport. This is an optional standalone mic-button example, not part of the everyday layout:
 
 ```json
 {
@@ -82,8 +82,7 @@ Taps use existing MTMR `actions`; there is no new tap transport. The Teams item 
 `executablePath` is the absolute executable itself; MTMR passes `shellArguments`
 to `Process`, not to an interpolating shell. `$HOME`, `~` and relative repo paths
 are not substituted by MTMR. `layouts/actual.json` uses `${REPO}`; `tbctl layout actual`
-replaces `${REPO}` with the repository path. The mic starts hidden (`startHidden`) until
-the watcher supplies a state.
+replaces `${REPO}` with the repository path. Teams mic/camera now live in the `teams` App Controls panel, not socket-addressable left buttons; the button-protocol examples above require corresponding layout items.
 
 ### Add another live button in three steps
 
@@ -115,87 +114,34 @@ limit remains 4 KB. Exit 0 success, 1 rejected/transport/bad reply, 2 usage,
 3 missing/refused socket: **MTMR is not running (no socket)**. No command retries
 (which could duplicate notifications).
 
-## Teams watcher (manual, not installed)
+## Teams watcher
 
-`teams/teams-watch` polls `teams-mute status` at one-second intervals and sends
-only when the full mapped state changes. It never launches/restarts Teams. The
-existing debug-port setup and English-label limits are in
-[runbook-teams-debug.md](runbook-teams-debug.md).
-
-| Status | Icon | Tint | Visible |
-|---|---|---|---|
-| exit 0, `unmuted` | `mic.fill` | green `#34c759` | true |
-| exit 0, `muted` | `mic.slash.fill` | red `#ff3b30` | true |
-| exit 4, no call | `mic.fill` | yellow `#ffcc00` (not drawn) | false, collapses |
-| exit 3 / failure / unreadable | `mic.fill` | yellow `#ffcc00` | true |
-
-`teams-watch --device camera` drives `teams-camera` the same way from `teams-mute camera-status`: `on` = `video.fill` green, `off` = `video.slash.fill` red, no call = hidden, unreadable = yellow. Only the mic watcher posts "Meeting joined".
-
-Each update includes background null and the full icon/tint/visibility state.
-Socket absence/refusal retries quietly. Socket device/inode/creation-metadata
-changes trigger a full re-send even if status is unchanged; failures retry on the
-next cycle. Status calls time out after five seconds, socket operations after two.
-Other failures log to stderr and recover to unreadable/yellow or retry delivery.
-SIGINT/SIGTERM stops cleanly after any bounded in-flight operation.
-
-User-run commands (none were run against Teams during implementation):
+Teams uses a dedicated [App Controls panel](app-controls.md#teams), not left live buttons. One `teams/teams-watch` process is supervised from the `appControls` item. It sends `teams` snapshots over the same socket, using browser CDP target events and a DOM MutationObserver rather than one-second status polling. No LaunchAgent is needed. The debug-port setup and English-label limits remain in [runbook-teams-debug.md](runbook-teams-debug.md).
 
 ```bash
-teams/teams-watch --once                  # print and apply one state
-teams/teams-watch --once --dry-run        # still reads Teams; prints, does not apply
-teams/teams-watch --interval 1 > /tmp/teams-watch.log 2>&1 &
-watcherPid=$!
-# Stop only this watcher, not Teams or MTMR:
-kill "$watcherPid"
+teams/teams-watch --dry-run   # read-only Teams observer; print changes, do not contact MTMR
+teams/teams-watch --socket /tmp/fake.sock  # alternate MTMR socket
 ```
 
-`--status-command /absolute/path/fake-status` selects a fake executable receiving
-`status`; combine with `--socket /tmp/fake.sock` for testing. `--once` exits 3 if
-no state could be applied (0 on successful application or dry-run).
-
-### LaunchAgent illustration only
-
-**Not installed or loaded.** If automation is later approved, a plist could contain:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>Label</key><string>com.maxday.teams-watch</string>
-  <key>ProgramArguments</key><array>
-    <string>/ABSOLUTE/PATH/TO/python3</string>
-    <string>/path/to/touchbar-interface/teams/teams-watch</string>
-  </array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/tmp/teams-watch.log</string>
-  <key>StandardErrorPath</key><string>/tmp/teams-watch-errors.log</string>
-</dict></plist>
-```
-
-Replace the interpreter placeholder with `command -v python3` output first. No
-installation commands are provided here; installation is a separate approved step.
-Rollback for manual use: stop the watcher; restore the previous layout source and
-patch/overlay/CLI files from the task's `/tmp/mtmr-live-buttons.5GbJGM/` backup and
-rebuild. Any live-layout change or app restart requires separate user approval.
+The old `--device`, `--interval`, `--status-command` and `--once` polling options are removed. One-shot `teams-cdp.py` / `teams-mute` commands still work. Tap scripts toggle once and no longer send obsolete `button teams-mic` / `button teams-camera` updates. Never run a toggle during development. State mapping and event routing tests use pure fixtures; they do not click Teams.
 
 ## Verification limits
 
 Run `mtmr/build.sh`, then `bash mtmr/tests/run-tests.sh`. Tests use temporary socket
-paths and fake status executables; standalone AppKit views do not create a Touch
+paths and event fixtures; standalone AppKit views do not create a Touch
 Bar or access the controller singleton. The current full-width three-icon fixture
 still yields **N=477 at W=1085**. Physical icon sizing/tint, group representation,
 Reduce Motion and coordinated animation appearance remain unverified; visible tags
-mark those assumptions. Nothing was installed or tried on the real bar/Teams port.
+mark those assumptions. The Teams watcher has a read-only idle-port check documented in [app-controls.md](app-controls.md#teams); no live controls were clicked or installed.
 
 ## Watchers and start state
 
-A live button in the layout accepts two more fields:
+A live button accepts `startHidden`; every top-level layout item, including `appControls`, accepts `watcher`:
 
-- `"startHidden": true`: the button starts hidden and collapsed. The watcher shows the button when the watcher has a state. The Teams mic uses this field, so no grey mic shows outside a call.
+- `"startHidden": true`: the button starts hidden and collapsed. A watcher can show the button when it has a state.
 - `"watcher": ["/absolute/path", "arg", ...]`: MTMR starts this process when the layout loads. MTMR stops the process when a new layout no longer lists it, and when MTMR quits.
   - If the process exits, MTMR starts it again after 1 s. The delay doubles up to 60 s. After 30 s of normal run, the delay goes back to 1 s.
   - The first item must be an absolute path to an executable file. Otherwise MTMR rejects the layout.
   - Output goes to `~/Library/Logs/touchbar-interface/watchers.log`. MTMR starts a new log file when the old file is larger than 1 MB.
 
-The Teams mic uses `teams/teams-watch` as its watcher, so no LaunchAgent is necessary for the mic. A tap runs `teams/teams-mic-tap`. That script toggles the mic and sets the new icon at once. The Teams camera button (`teams-camera`) works the same way: watcher `teams/teams-watch --device camera`, tap `teams/teams-camera-tap`.
+The actual layout attaches `teams/teams-watch` to App Controls and declares `teams` after `system` in `panels`. The panel runs `teams/teams-mic-tap` and `teams/teams-camera-tap` asynchronously, with optimistic icon state until watcher confirmation. There are no Teams live-button IDs in the actual layout.

@@ -127,20 +127,15 @@ class NotificationTests(unittest.TestCase):
         self.assertIsInstance(items, list)
         identifiers = [item["id"] for item in items if "id" in item]
         self.assertEqual(len(identifiers), len(set(identifiers)))
-        microphone = next(item for item in items if item.get("id") == "teams-mic")
-        self.assertEqual(microphone["type"], "staticButton")
-        self.assertEqual(microphone["icon"], "mic.fill")
-        self.assertEqual(microphone["tint"], "#8e8e93")
-        self.assertEqual(microphone["title"], "")
-        self.assertFalse(microphone.get("keepSlotWhenHidden", False))
-        self.assertTrue(microphone["startHidden"])
-        self.assertEqual(microphone["watcher"], [str(repositoryRoot / "teams/teams-watch")])
-        self.assertEqual(microphone["actions"], [{"trigger": "singleTap", "action": "shellScript",
-                                               "executablePath": str(repositoryRoot / "teams/teams-mic-tap"),
-                                               "shellArguments": []}])
+        self.assertNotIn("teams-mic", identifiers)
+        self.assertNotIn("teams-camera", identifiers)
+        self.assertEqual([item["watcher"] for item in items if "watcher" in item],
+                         [[str(repositoryRoot / "teams/teams-watch")]])
         appControls = [item for item in items if item["type"] == "appControls"]
         self.assertEqual(len(appControls), 1)
         self.assertEqual(appControls[0]["align"], "right")
+        self.assertEqual(appControls[0]["panels"][:2], ["system", "teams"])
+        self.assertEqual(appControls[0]["teams"], {"directory": str(repositoryRoot / "teams")})
 
     def compileHarness(self, temporaryDirectory):
         executablePath = str(Path(temporaryDirectory) / "notification-harness")

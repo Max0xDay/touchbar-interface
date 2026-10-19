@@ -9,7 +9,14 @@ struct LayoutViewTests {
             let actualLayout = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))
             let actualDefinitions = try JSONDecoder().decode([BarItemDefinition].self, from: actualLayout)
             try validateLiveButtonIds(actualDefinitions)
-            precondition(actualDefinitions.contains { $0.liveButton?.id == "teams-mic" })
+            precondition(actualDefinitions.allSatisfy { $0.liveButton?.id != "teams-mic" })
+            precondition(actualDefinitions.allSatisfy { $0.liveButton?.id != "teams-camera" })
+            let watchers = actualDefinitions.compactMap { $0.liveButton?.watcher }
+            precondition(watchers.count == 1, "Teams needs one watcher on App Controls")
+            guard let appControls = actualDefinitions.first(where: { if case .appControls = $0.type { return true }; return false }),
+                  case let .appControls(options) = appControls.type else { preconditionFailure("Missing App Controls") }
+            precondition(options.panels.prefix(2) == ["system", "teams"])
+            precondition(appControls.liveButton?.watcher == watchers.first)
             let layoutBytes = Data(Self.fixture.utf8)
             guard var layoutObjects = try JSONSerialization.jsonObject(with: layoutBytes) as? [[String: Any]] else {
                 preconditionFailure("Layout must be an array of objects")
