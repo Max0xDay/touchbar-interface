@@ -26,6 +26,8 @@ final class NotificationLayoutView: NSView {
     private var visibilityObserver: NSObjectProtocol?
     private var volumeSlider: VolumeSliderView?
     private weak var volumeButton: VolumeButton?
+    private var particlesObserver: NSObjectProtocol?
+    private weak var particleFlowView: ParticleFlowView?
 
     init(items: [NSTouchBarItem], definitions: [NSTouchBarItem.Identifier: BarItemDefinition], notification: NotificationTouchBarItem) {
         left = Self.buttons(items, definitions: definitions, alignment: .left)
@@ -46,6 +48,15 @@ final class NotificationLayoutView: NSView {
             guard (self.left + self.right).contains(where: { $0.view === changedView }) else { return }
             self.solve(animated: true)
         }
+        particlesObserver = NotificationCenter.default.addObserver(forName: Notification.Name("MTMRParticles"), object: nil, queue: .main) { [weak self] notification in
+            guard let self = self else { return }
+            let fields = notification.userInfo ?? [:]
+            self.playParticles(count: fields["count"] as? Int ?? ParticleFlowView.defaultCount,
+                               seconds: fields["seconds"] as? Double ?? ParticleFlowView.defaultSeconds,
+                               color: fields["color"] as? NSColor ?? ParticleFlowView.defaultColor,
+                               style: fields["style"] as? String ?? "dots")
+        }
+        ChargingMonitor.shared.start()
         needsLayout = true
     }
 
@@ -77,7 +88,32 @@ final class NotificationLayoutView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil { closeVolumeSlider() }
+        guard window != nil else {
+            closeVolumeSlider()
+            particleFlowView?.stop()
+            particleFlowView?.removeFromSuperview()
+            return
+        }
+    }
+
+    func playParticles(count: Int = ParticleFlowView.defaultCount, seconds: Double = ParticleFlowView.defaultSeconds, color: NSColor = ParticleFlowView.defaultColor, style: String = "dots") {
+        // #COMPLETION_DRIVE: The private Touch Bar host reports window visibility when our bar is on screen.
+        // #SUGGEST_VERIFY: Plug in while minimised and during app switches; no delayed effect should appear.
+        guard window?.isVisible == true else { return }
+        guard !isHiddenOrHasHiddenAncestor else { return }
+        particleFlowView?.stop()
+        particleFlowView?.removeFromSuperview()
+        layoutSubtreeIfNeeded()
+        let particles = ParticleFlowView(frame: particleRegion())
+        particleFlowView = particles
+        addSubview(particles, positioned: .above, relativeTo: nil)
+        particles.play(count: count, seconds: seconds, color: color, style: style)
+    }
+
+    private func particleRegion() -> NSRect {
+        let notificationLeft = notificationView.frame.minX
+        let width = notificationLeft > 0 ? min(notificationLeft, bounds.width) : bounds.width / 3
+        return NSRect(x: 0, y: 0, width: width, height: bounds.height)
     }
 
     func openVolumeSlider(for button: VolumeButton) {
@@ -88,6 +124,7 @@ final class NotificationLayoutView: NSView {
         volumeSlider = slider
         button.slider = slider
         addSubview(slider, positioned: .above, relativeTo: nil)
+        if let particles = particleFlowView { addSubview(particles, positioned: .above, relativeTo: slider) }
         layoutVolumeSlider()
         slider.resetIdleTimer()
     }
@@ -135,6 +172,7 @@ final class NotificationLayoutView: NSView {
         for (button, frame) in zip(visibleRight, solution.right) { apply(frame, to: button.view, visible: button.visible, duration: duration) }
         apply(solution.notification, to: notificationView, visible: true, duration: duration)
         layoutVolumeSlider()
+        particleFlowView?.frame = particleRegion()
         notificationView.layoutSubtreeIfNeeded()
         if NotificationDebug.enabled {
             let labelFrame = notificationView.subviews.first?.frame ?? .zero
@@ -235,6 +273,7 @@ final class NotificationLayoutView: NSView {
 
     deinit {
         if let observer = visibilityObserver { NotificationCenter.default.removeObserver(observer) }
+        if let observer = particlesObserver { NotificationCenter.default.removeObserver(observer) }
     }
 
     private static func buttons(_ items: [NSTouchBarItem], definitions: [NSTouchBarItem.Identifier: BarItemDefinition], alignment: Align) -> [Button] {
