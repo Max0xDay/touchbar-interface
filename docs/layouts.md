@@ -5,7 +5,7 @@ The repository has two layouts in `layouts/`:
 | Layout | File | Purpose |
 |---|---|---|
 | Template | `layouts/template.json` | Reference for spacing and look: ✕, gap, three shape placeholders, notification area, two temporary buttons. Change the template only for a deliberate experiment. |
-| Actual | `layouts/actual.json` | The everyday bar: ✕, gap, volume, Teams mic and camera, notification area, App Controls ([app-controls.md](app-controls.md)). |
+| Actual | `layouts/actual.json` | The everyday bar: universal control, gap, Teams mic and camera, notification area, App Controls ([app-controls.md](app-controls.md)). |
 
 ## Switch the layout
 
@@ -24,9 +24,19 @@ bin/tbctl layout actual --dry-run   # print the rendered file, change nothing
 
 Rollback: run `bin/tbctl layout template`, or copy a file from `layout-backups/` back to `items.json`.
 
-## Volume button
+## Universal control button
 
-The actual layout places `{ "type": "volume", "align": "left", "width": 75, "id": "volume" }` after the spacer and before the Teams mic and camera. It is always visible, uses the normal left-button shrinking rules, and shows a grey speaker (slashed when muted or at zero). Tap it to open a 30 pt-high slider over the left buttons, from the volume button to 16 pt before the notification area; covered buttons cannot receive touches. Drag to change the default output device's volume live, tap the speaker to toggle mute, or tap the right-hand ✕ to close; it also closes after 6 seconds without touch. Keyboard/app volume changes and output-device changes update the control. Devices without writable volume show a disabled track; mute is disabled when unsupported. `type`, `align` and `width` use the standard item fields, `id` is optional layout identity (not a socket-driven live button), and there are no volume-specific options. This replaces upstream's permanent `volume` slider and requires the notification layout host.
+The actual layout starts with `{ "type": "volume", "align": "left", "width": 30, "id": "volume" }`, followed by the existing spacer (preserving the doubled gap), then Teams mic and camera. The always-visible 30 × 30 button shows a white sliders glyph and does not shrink. The `volume` item type is retained for compatibility with patch 0006; it now replaces both the old exit button and the separate volume button.
+
+- Tap replaces the main bar with a separate full-width control page using MTMR's group-style modal presentation. No notifications, App Controls, extra buttons or close glyph appear on this page.
+- Left to right: the same 30 × 30 media button, brightness slider, volume slider. Both sliders are plain AppKit `NSSliderTouchBarItem`s with no custom cells or drawing, no labels, and standard item spacing. Each slider is 200 pt total, including both accessories, enforced by a required width on the native item container. A trailing flexible spacer keeps the controls left-aligned and the rest of the page empty. Their SF Symbol accessories are `sun.min.fill` / `sun.max.fill` and `speaker.fill` / `speaker.wave.3.fill`, rendered white through `TouchBarIcon` in the bar's 18 pt icon box, with default accessory widths.
+- Drag brightness to change the built-in display through `DisplayServicesGetBrightness` / `DisplayServicesSetBrightness` (runtime-loaded with `dlopen` / `dlsym`, no extra linking). The controller prefers the online built-in display over the main external display. IODisplay is used only if the DisplayServices framework/symbols are unavailable; failures are logged once per operation, not per event. It reads on opening and refreshes every second while open to follow keyboard brightness changes; setting brightness does not trigger a refresh.
+- Drag volume to change the default output device live. CoreAudio listeners follow keyboard/app changes and output-device switching. Devices without writable volume show a disabled slider. The speaker accessory is not a mute button.
+- Each slider ignores external value refreshes while its finger is down (even outside its bounds) and for 0.6 seconds after its last user change. Brightness and volume writes are independently coalesced to at most 60 Hz: the first change is immediate, subsequent changes keep the latest value, and release/close preserves the final pending write, applied within the next write interval before stopping the controller.
+- Tap the media button again or leave the page untouched for 6 seconds to return to the main bar. Slider changes and page touches restart the timeout; a held touch keeps the page open. Dismissing or recreating the bar closes the page and stops its controllers without reopening it.
+- Hold the main-bar universal button for at least 0.5 seconds to return to Apple's Touch Bar, using the same exit routine as the former ✕ item. A short tap never exits, and releasing after a hold does not open the page.
+
+`type`, `align` and `width` use standard item fields; `id` is optional layout identity, not a socket-driven live button. There are no control-specific options. Hardware verification is still needed for brightness with external monitors, direct touch/hold handling, modal visibility detection and the media button's left position. The focused volume tests verify 200 pt native container widths and slider ownership/coalescing without changing hardware settings. AppKit supplies the slider appearance. Rollback: restore the previous control source files and actual layout from git or the pre-change backup, rebuild, then explicitly install the restored layout with `bin/tbctl layout actual`; the template is unchanged.
 
 ## Charging particles
 

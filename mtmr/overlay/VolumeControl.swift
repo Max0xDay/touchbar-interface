@@ -3,15 +3,18 @@ import Cocoa
 final class VolumeTouchBarItem: NSCustomTouchBarItem {
     override init(identifier: NSTouchBarItem.Identifier) {
         super.init(identifier: identifier)
-        view = VolumeButton(frame: NSRect(x: 0, y: 0, width: 75, height: 30))
+        view = VolumeButton(frame: NSRect(x: 0, y: 0, width: 30, height: 30))
     }
 
     required init?(coder: NSCoder) { return nil }
 }
 
 final class VolumeButton: NSButton {
-    let controller = OutputVolumeController()
-    weak var slider: VolumeSliderView?
+    private var page: UniversalControlPage?
+    var tapped: (() -> Void)?
+    var detached: (() -> Void)?
+    private var press = UniversalControlPress()
+    private var holdTimer: Timer?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -19,180 +22,349 @@ final class VolumeButton: NSButton {
         bezelStyle = .rounded
         imagePosition = .imageOnly
         imageScaling = .scaleNone
+        image = TouchBarIcon.symbol("slider.horizontal.3", tint: .white)
+        allowedTouchTypes = .direct
         target = self
         action = #selector(openSlider)
+        setAccessibilityLabel("Brightness and volume")
         heightAnchor.constraint(equalToConstant: 30).isActive = true
-        controller.changed = { [weak self] in self?.refreshAppearance() }
-        refreshAppearance()
     }
 
     required init?(coder: NSCoder) { return nil }
-
-    override var intrinsicContentSize: NSSize { return NSSize(width: 75, height: 30) }
+    deinit {
+        holdTimer?.invalidate()
+        page?.close(returnToMain: false)
+    }
+    override var intrinsicContentSize: NSSize { return NSSize(width: 30, height: 30) }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
-            controller.stop()
-        } else {
-            controller.start()
+            cancelPress()
+            detached?()
         }
     }
 
     @objc private func openSlider() {
-        guard let host = superview as? NotificationLayoutView else {
-            NSLog("MTMR volume: slider requires a notification layout host")
+        if let tapped = tapped {
+            tapped()
             return
         }
-        host.openVolumeSlider(for: self)
+        guard page == nil else { return }
+        let controls = UniversalControlPage()
+        controls.didClose = { [weak self] in self?.page = nil }
+        page = controls
+        controls.show()
     }
 
-    private func refreshAppearance() {
-        image = TouchBarIcon.symbol(controller.state.symbol, tint: NSColor(white: 0.62, alpha: 1))
-        slider?.needsDisplay = true
-    }
-}
-
-/// One opaque hit surface, above the normal left buttons. Touch handling mirrors the Fan custom slider.
-final class VolumeSliderView: NSView {
-    private enum Region { case speaker, track, close }
-    private static let idleSeconds: TimeInterval = 6
-    private let controller: OutputVolumeController
-    private let close: () -> Void
-    private var idleTimer: Timer?
-    private var activeRegion: Region?
-
-    init(controller: OutputVolumeController, close: @escaping () -> Void) {
-        self.controller = controller
-        self.close = close
-        super.init(frame: .zero)
-        allowedTouchTypes = .direct
-        wantsLayer = true
-        layer?.masksToBounds = true
+    private func exitTouchBar() {
+        // Invoke the same private @objc entry point as upstream's exitTouchbar item, without patching upstream.
+        TouchBarController.shared.perform(NSSelectorFromString("dismissTouchBar"))
     }
 
-    required init?(coder: NSCoder) { return nil }
-    deinit { idleTimer?.invalidate() }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if window == nil {
-            idleTimer?.invalidate()
-        } else {
-            resetIdleTimer()
+    private func beginPress() {
+        cancelPress()
+        press.begin(at: ProcessInfo.processInfo.systemUptime)
+        highlight(true)
+        let timer = Timer(timeInterval: UniversalControlPress.holdSeconds, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            guard self.tapped == nil else { return }
+            if self.press.hold(at: ProcessInfo.processInfo.systemUptime) { self.exitTouchBar() }
         }
-    }
-
-    func resetIdleTimer() {
-        idleTimer?.invalidate()
-        let timer = Timer(timeInterval: Self.idleSeconds, repeats: false) { [weak self] _ in self?.close() }
-        idleTimer = timer
+        holdTimer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        return bounds.contains(convert(point, from: superview)) ? self : nil
+    private func cancelPress() {
+        holdTimer?.invalidate()
+        holdTimer = nil
+        press.cancel()
+        highlight(false)
     }
 
-    private var track: NSRect {
-        return NSRect(x: 44, y: bounds.midY - 4, width: max(0, bounds.width - 86), height: 8)
-    }
-
-    override func draw(_: NSRect) {
-        NSColor.black.setFill()
-        bounds.fill()
-        NSColor(white: 0.18, alpha: 1).setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill()
-        drawSymbol(controller.state.symbol, center: NSPoint(x: 18, y: bounds.midY), enabled: controller.state.canSetMute)
-        drawSymbol("xmark", center: NSPoint(x: bounds.maxX - 15, y: bounds.midY), enabled: true, box: 12)
-        drawSlider()
-    }
-
-    private func drawSymbol(_ name: String, center: NSPoint, enabled: Bool, box: CGFloat = TouchBarIcon.symbolBox) {
-        let colour = NSColor(white: enabled ? 0.8 : 0.36, alpha: 1)
-        guard let image = TouchBarIcon.symbol(name, box: box, tint: colour) else { return }
-        image.draw(in: NSRect(x: center.x - image.size.width / 2, y: center.y - image.size.height / 2, width: image.size.width, height: image.size.height))
-    }
-
-    private func drawSlider() {
-        let enabled = controller.state.canSetVolume
-        NSColor(white: enabled ? 0.35 : 0.24, alpha: 1).setFill()
-        NSBezierPath(roundedRect: track, xRadius: 4, yRadius: 4).fill()
-        let knobPosition = VolumeControlGeometry.knobPosition(volume: controller.state.volume ?? 0, track: track)
-        NSColor(white: enabled ? 0.75 : 0.3, alpha: 1).setFill()
-        let fill = NSRect(x: track.minX, y: track.minY, width: knobPosition - track.minX, height: track.height)
-        NSBezierPath(roundedRect: fill, xRadius: 4, yRadius: 4).fill()
-        NSColor(white: enabled ? 1 : 0.4, alpha: 1).setFill()
-        NSBezierPath(ovalIn: NSRect(x: knobPosition - 7, y: bounds.midY - 7, width: 14, height: 14)).fill()
-    }
-
-    private func region(at point: NSPoint) -> Region {
-        if point.x < 36 { return .speaker }
-        if point.x >= bounds.maxX - 30 { return .close }
-        return .track
-    }
-
-    private func begin(at point: NSPoint) {
-        idleTimer?.invalidate()
-        activeRegion = region(at: point)
-        move(to: point)
-    }
-
-    private func move(to point: NSPoint) {
-        idleTimer?.invalidate()
-        guard activeRegion == .track else { return }
-        controller.setVolume(VolumeControlGeometry.volume(position: point.x, track: track))
-    }
-
-    private func end(at point: NSPoint) {
-        let startedRegion = activeRegion
-        activeRegion = nil
-        resetIdleTimer()
-        guard bounds.contains(point), startedRegion == region(at: point) else { return }
-        switch startedRegion {
-        case .speaker: controller.toggleMute()
-        case .close: close()
-        default: break
+    private func endPress(at point: NSPoint) {
+        guard bounds.contains(point) else {
+            cancelPress()
+            return
+        }
+        let action = press.end(at: ProcessInfo.processInfo.systemUptime)
+        cancelPress()
+        guard let action = action else { return }
+        if tapped != nil {
+            openSlider()
+            return
+        }
+        switch action {
+        case .open: openSlider()
+        case .exit: exitTouchBar()
         }
     }
 
-    // #COMPLETION_DRIVE: Direct Touch Bar touches follow the same began/moved/ended delivery as the Fan slider.
-    // #SUGGEST_VERIFY: On hardware, check live dragging, mute/close taps and holding longer than the idle timeout.
+    // #COMPLETION_DRIVE: Direct touches reach the button.
+    // #SUGGEST_VERIFY: Check short tap, 0.5 s hold, release after exit, and cancelled/dragged-out touches on hardware.
     override func touchesBegan(with event: NSEvent) {
-        guard let point = touchLocation(event, phase: .began) else { return }
-        begin(at: point)
+        guard event.touches(matching: .began, in: self).contains(where: { $0.type == .direct }) else { return }
+        beginPress()
     }
 
     override func touchesMoved(with event: NSEvent) {
         guard let point = touchLocation(event, phase: .moved) else { return }
-        move(to: point)
+        if !bounds.contains(point) { cancelPress() }
     }
 
     override func touchesEnded(with event: NSEvent) {
         guard let point = touchLocation(event, phase: .ended) else {
-            cancelTouch()
+            cancelPress()
             return
         }
-        if activeRegion == .track { move(to: point) }
-        end(at: point)
+        endPress(at: point)
     }
 
-    override func touchesCancelled(with event: NSEvent) { cancelTouch() }
+    override func touchesCancelled(with event: NSEvent) { cancelPress() }
 
     private func touchLocation(_ event: NSEvent, phase: NSTouch.Phase) -> NSPoint? {
         return event.touches(matching: phase, in: self).first(where: { $0.type == .direct })?.location(in: self)
     }
 
-    private func cancelTouch() {
-        activeRegion = nil
-        resetIdleTimer()
+    override func mouseDown(with event: NSEvent) { beginPress() }
+    override func mouseDragged(with event: NSEvent) {
+        if !bounds.contains(convert(event.locationInWindow, from: nil)) { cancelPress() }
+    }
+    override func mouseUp(with event: NSEvent) { endPress(at: convert(event.locationInWindow, from: nil)) }
+}
+
+/// Keeps native slider tracking intact; writes and external refreshes have independent ownership.
+final class UniversalSliderInteraction {
+    private let item: NSSliderTouchBarItem
+    private let writeValue: (Double) -> Void
+    private var state = UniversalSliderState()
+    private var touches: [NSTouch] = []
+    private var writeTimer: Timer?
+    private var didFinish: (() -> Void)?
+
+    init(item: NSSliderTouchBarItem, writeValue: @escaping (Double) -> Void) {
+        self.item = item
+        self.writeValue = writeValue
     }
 
-    override func mouseDown(with event: NSEvent) { begin(at: convert(event.locationInWindow, from: nil)) }
-    override func mouseDragged(with event: NSEvent) { move(to: convert(event.locationInWindow, from: nil)) }
-    override func mouseUp(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        if activeRegion == .track { move(to: point) }
-        end(at: point)
+    var ignoresRefresh: Bool {
+        return state.ignoresRefresh(at: ProcessInfo.processInfo.systemUptime)
     }
+
+    func change() {
+        state.queue(item.slider.doubleValue, at: ProcessInfo.processInfo.systemUptime)
+        applyPending()
+    }
+
+    func updateTouches(_ event: NSEvent) {
+        for touch in event.touches(matching: .began, in: nil) where touch.type == .direct {
+            if item.view.bounds.contains(touch.location(in: item.view)) { touches.append(touch) }
+        }
+        let activeTouches = event.touches(matching: .touching, in: nil)
+        touches.removeAll { previous in
+            !activeTouches.contains(where: { $0.identity.isEqual(previous.identity) })
+        }
+        state.setTouching(!touches.isEmpty)
+        if touches.isEmpty { applyPending() }
+    }
+
+    func finish(afterWriting completion: @escaping () -> Void) {
+        touches = []
+        state.setTouching(false)
+        didFinish = completion
+        applyPending()
+    }
+
+    private func applyPending() {
+        writeTimer?.invalidate()
+        writeTimer = nil
+        let time = ProcessInfo.processInfo.systemUptime
+        if let value = state.takeWrite(at: time) { writeValue(value) }
+        guard let delay = state.nextWriteDelay(at: time) else {
+            let completion = didFinish
+            didFinish = nil
+            completion?()
+            return
+        }
+        // Retain until the one-shot fires so closing the page cannot drop its final pending write.
+        let timer = Timer(timeInterval: delay, repeats: false) { _ in self.applyPending() }
+        writeTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+}
+
+/// Uses the same modal-bar item replacement as GroupBarItem, preserving the main page for return.
+final class UniversalControlPage: NSObject, NSTouchBarDelegate {
+    let mediaItem = VolumeTouchBarItem(identifier: NSTouchBarItem.Identifier("MTMR.controls.media"))
+    let brightnessItem = NSSliderTouchBarItem(identifier: NSTouchBarItem.Identifier("MTMR.controls.brightness"))
+    let volumeItem = NSSliderTouchBarItem(identifier: NSTouchBarItem.Identifier("MTMR.controls.volume"))
+    var didClose: (() -> Void)?
+    private let brightnessController = DisplayBrightnessController()
+    private let volumeController = OutputVolumeController()
+    private lazy var brightnessInteraction = UniversalSliderInteraction(item: brightnessItem) { [brightnessController] in
+        brightnessController.setBrightness($0)
+    }
+    private lazy var volumeInteraction = UniversalSliderInteraction(item: volumeItem) { [volumeController] in
+        volumeController.setVolume($0)
+    }
+    private var modalBar: NSTouchBar?
+    private weak var mainDelegate: NSTouchBarDelegate?
+    private var mainIdentifiers: [NSTouchBarItem.Identifier] = []
+    private var idleTimer: Timer?
+    private var visibilityTimer: Timer?
+    private var touchMonitor: Any?
+    private var touching = false
+    private var showing = false
+
+    override init() {
+        super.init()
+        configureSlider(brightnessItem, low: "sun.min.fill", high: "sun.max.fill", action: #selector(changeBrightness))
+        configureSlider(volumeItem, low: "speaker.fill", high: "speaker.wave.3.fill", action: #selector(changeVolume))
+        mediaItem.view.widthAnchor.constraint(equalToConstant: 30).isActive = true
+        if let button = mediaItem.view as? VolumeButton {
+            button.tapped = { [weak self] in self?.close() }
+            button.detached = { [weak self] in self?.close(returnToMain: false) }
+        }
+        brightnessController.changed = { [weak self] in self?.refreshBrightness() }
+        volumeController.changed = { [weak self] in self?.refreshVolume() }
+    }
+
+    private func configureSlider(_ item: NSSliderTouchBarItem, low: String, high: String, action: Selector) {
+        item.label = nil
+        item.slider.minValue = 0
+        item.slider.maxValue = 1
+        item.slider.isContinuous = true
+        item.valueAccessoryWidth = .default
+        item.minimumValueAccessory = accessory(low)
+        item.maximumValueAccessory = accessory(high)
+        item.target = self
+        item.action = action
+        // item.view is AppKit's container for both accessories and the slider, not the slider itself.
+        item.view.translatesAutoresizingMaskIntoConstraints = false
+        item.view.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        item.slider.widthAnchor.constraint(lessThanOrEqualToConstant: 200).isActive = true
+    }
+
+    private func accessory(_ symbol: String) -> NSSliderAccessory? {
+        guard let image = TouchBarIcon.symbol(symbol, tint: .white) else {
+            NSLog("MTMR controls: missing slider accessory symbol %@", symbol)
+            return nil
+        }
+        return NSSliderAccessory(image: image)
+    }
+
+    func show() {
+        guard !showing else { return }
+        guard let bar = TouchBarController.shared.touchBar else {
+            NSLog("MTMR controls: no main Touch Bar available")
+            didClose?()
+            return
+        }
+        modalBar = bar
+        mainDelegate = bar.delegate
+        mainIdentifiers = bar.defaultItemIdentifiers
+        brightnessController.start()
+        volumeController.start()
+        bar.delegate = self
+        bar.defaultItemIdentifiers = []
+        bar.defaultItemIdentifiers = [mediaItem.identifier, brightnessItem.identifier, volumeItem.identifier, .flexibleSpace]
+        presentSystemModal(bar, placement: 1, systemTrayItemIdentifier: .controlStripItem)
+        showing = true
+        monitorTouches()
+        resetIdleTimer()
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.checkVisibility() }
+        visibilityTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    func close(returnToMain: Bool = true) {
+        guard showing else { return }
+        showing = false
+        stopMonitoring()
+        if let bar = modalBar, bar.delegate === self {
+            bar.defaultItemIdentifiers = []
+            bar.delegate = mainDelegate
+            bar.defaultItemIdentifiers = mainIdentifiers
+            if returnToMain, TouchBarController.shared.touchBar === bar {
+                presentSystemModal(bar, placement: 1, systemTrayItemIdentifier: .controlStripItem)
+            }
+        }
+        modalBar = nil
+        didClose?()
+    }
+
+    private func stopMonitoring() {
+        idleTimer?.invalidate()
+        visibilityTimer?.invalidate()
+        brightnessInteraction.finish { [brightnessController] in brightnessController.stop() }
+        volumeInteraction.finish { [volumeController] in volumeController.stop() }
+        if let monitor = touchMonitor { NSEvent.removeMonitor(monitor) }
+        touchMonitor = nil
+    }
+
+    // #COMPLETION_DRIVE: The modal host reports visibility and direct touches.
+    // #SUGGEST_VERIFY: Dismiss/recreate the bar; hold a stationary slider touch for more than 6 s.
+    private func checkVisibility() {
+        guard TouchBarController.shared.touchBar === modalBar else {
+            close(returnToMain: false)
+            return
+        }
+        guard modalBar?.delegate === self else {
+            close(returnToMain: false)
+            return
+        }
+        if mediaItem.view.window?.isVisible != true { close(returnToMain: false) }
+    }
+
+    // #COMPLETION_DRIVE: Slider touches share the modal window touch stream.
+    // #SUGGEST_VERIFY: Hold and drag each slider beyond its bounds on hardware.
+    private func monitorTouches() {
+        touchMonitor = NSEvent.addLocalMonitorForEvents(matching: .directTouch) { [weak self] event in
+            guard let self = self, let window = self.mediaItem.view.window else { return event }
+            guard event.window === window else { return event }
+            self.brightnessInteraction.updateTouches(event)
+            self.volumeInteraction.updateTouches(event)
+            self.touching = event.touches(matching: .touching, in: nil).contains(where: { $0.type == .direct })
+            self.resetIdleTimer()
+            return event
+        }
+    }
+
+    private func resetIdleTimer() {
+        idleTimer?.invalidate()
+        let timer = Timer(timeInterval: 6, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            if self.touching { self.resetIdleTimer() } else { self.close() }
+        }
+        idleTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func refreshBrightness() {
+        guard !brightnessInteraction.ignoresRefresh else { return }
+        brightnessItem.slider.doubleValue = brightnessController.brightness ?? 0
+        brightnessItem.slider.isEnabled = brightnessController.brightness != nil
+    }
+
+    private func refreshVolume() {
+        guard !volumeInteraction.ignoresRefresh else { return }
+        volumeItem.slider.doubleValue = volumeController.state.volume ?? 0
+        volumeItem.slider.isEnabled = volumeController.state.canSetVolume
+    }
+
+    @objc private func changeBrightness() {
+        resetIdleTimer()
+        brightnessInteraction.change()
+    }
+
+    @objc private func changeVolume() {
+        resetIdleTimer()
+        volumeInteraction.change()
+    }
+
+    func touchBar(_: NSTouchBar, makeItemForIdentifier identifier: NSTouchBarItem.Identifier) -> NSTouchBarItem? {
+        return [mediaItem, brightnessItem, volumeItem].first(where: { $0.identifier == identifier })
+    }
+
+    deinit { stopMonitoring() }
 }

@@ -211,8 +211,7 @@ struct PraatvolDisplay {
         var parts: [String] = []
         if let duration = snapshot?.durationSeconds { parts.append(Self.time(duration)) }
         if let bytes = snapshot?.uploadBytes {
-            // #COMPLETION_DRIVE: MB means decimal megabytes, rather than binary MiB.
-            // #SUGGEST_VERIFY: Confirm praatvol uses the same size unit in its review UI.
+            // MB = decimal megabytes.
             parts.append(String(format: "%.1f MB", Double(max(0, bytes)) / 1_000_000))
         }
         return parts.joined(separator: " · ")

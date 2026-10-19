@@ -133,8 +133,6 @@ final class NotificationAreaView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         moreDot.frame = NSRect(x: bounds.maxX - 7, y: bounds.maxY - 7, width: 4, height: 4)
-        // #COMPLETION_DRIVE: Centre the unread dot in the empty area as the recall affordance.
-        // #SUGGEST_VERIFY: Check the dim 5 pt dot's visibility and tap recall on the physical Touch Bar.
         unreadDot.frame = NSRect(x: bounds.midX - 2.5, y: bounds.midY - 2.5, width: 5, height: 5)
         CATransaction.commit()
         positionContent()

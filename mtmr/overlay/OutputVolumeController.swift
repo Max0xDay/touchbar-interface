@@ -30,6 +30,7 @@ final class OutputVolumeController {
     private var muteAddresses: [AudioObjectPropertyAddress] = []
     private var listeners: [Listener] = []
     private var running = false
+    private var loggedFailures = Set<String>()
 
     // #COMPLETION_DRIVE: The default output exposes virtual/main or preferred stereo-channel controls when supported.
     // #SUGGEST_VERIFY: Check keyboard/app updates and device switching with built-in audio, headphones and HDMI.
@@ -49,14 +50,12 @@ final class OutputVolumeController {
     deinit { removeListeners() }
 
     func setVolume(_ volume: Double) {
-        refresh()
         guard state.canSetVolume else { return }
         let level = Float32(VolumeControlGeometry.clamped(volume))
         for address in volumeAddresses { write(level, address: address) }
         if state.canSetMute {
             for address in muteAddresses { write(UInt32(level == 0 ? 1 : 0), address: address) }
         }
-        refresh()
     }
 
     func toggleMute() {
@@ -190,7 +189,9 @@ final class OutputVolumeController {
 
     private func succeeded(_ status: OSStatus, operation: String) -> Bool {
         guard status == noErr else {
-            NSLog("MTMR volume: %@ failed (%d)", operation, status)
+            if loggedFailures.insert(operation).inserted {
+                NSLog("MTMR volume: %@ failed (%d)", operation, status)
+            }
             return false
         }
         return true

@@ -85,7 +85,6 @@ fi
 
 # Verified in earlier private research notes: Teams' WebView2 reads this env var
 # and opens a loopback-only DevTools port. --remote-allow-origins=* is needed there for non-browser clients.
-# #SUGGEST_VERIFY: after a real launch run `lsof -nP -iTCP:PORT -sTCP:LISTEN`; this script also checks the bind address
 webviewArguments="--remote-debugging-port=${debugPort} --remote-allow-origins=*"
 launchCommand=(env "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=${webviewArguments}" "${TEAMS_EXECUTABLE_PATH}")
 

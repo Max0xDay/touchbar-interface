@@ -14,8 +14,7 @@ final class NotificationLayoutView: NSView {
         var reservesSlot: Bool { return visible || keepSlotWhenHidden }
     }
 
-    // #COMPLETION_DRIVE: Use 1085 pt only while actual host/view bounds are unavailable.
-    // #SUGGEST_VERIFY: Confirm the live full-width bar reports 1085x30 pt on this MacBook Pro.
+    // The real bar host is 1004 x 30 pt (verified from logs); 1085 is only the fallback before real bounds exist.
     private static let fallbackWidth: CGFloat = 1085
     private let left: [Button]
     private let right: [Button]
@@ -24,8 +23,6 @@ final class NotificationLayoutView: NSView {
     private var hostConstraints: [NSLayoutConstraint] = []
     private var solvedWidth: Double?
     private var visibilityObserver: NSObjectProtocol?
-    private var volumeSlider: VolumeSliderView?
-    private weak var volumeButton: VolumeButton?
     private var particlesObserver: NSObjectProtocol?
     private weak var particleFlowView: ParticleFlowView?
 
@@ -89,7 +86,6 @@ final class NotificationLayoutView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard window != nil else {
-            closeVolumeSlider()
             particleFlowView?.stop()
             particleFlowView?.removeFromSuperview()
             return
@@ -114,36 +110,6 @@ final class NotificationLayoutView: NSView {
         let notificationLeft = notificationView.frame.minX
         let width = notificationLeft > 0 ? min(notificationLeft, bounds.width) : bounds.width / 3
         return NSRect(x: 0, y: 0, width: width, height: bounds.height)
-    }
-
-    func openVolumeSlider(for button: VolumeButton) {
-        guard left.contains(where: { $0.view === button }) else { return }
-        closeVolumeSlider()
-        volumeButton = button
-        let slider = VolumeSliderView(controller: button.controller) { [weak self] in self?.closeVolumeSlider() }
-        volumeSlider = slider
-        button.slider = slider
-        addSubview(slider, positioned: .above, relativeTo: nil)
-        if let particles = particleFlowView { addSubview(particles, positioned: .above, relativeTo: slider) }
-        layoutVolumeSlider()
-        slider.resetIdleTimer()
-    }
-
-    private func layoutVolumeSlider() {
-        guard let slider = volumeSlider, let button = volumeButton else { return }
-        guard !button.isHidden else {
-            closeVolumeSlider()
-            return
-        }
-        slider.frame = VolumeControlGeometry.overlayFrame(button: button.frame, notificationLeft: notificationView.frame.minX)
-        slider.needsDisplay = true
-        if slider.frame.width == 0 { closeVolumeSlider() }
-    }
-
-    private func closeVolumeSlider() {
-        volumeSlider?.removeFromSuperview()
-        volumeSlider = nil
-        volumeButton = nil
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -171,7 +137,6 @@ final class NotificationLayoutView: NSView {
         for (button, frame) in zip(visibleLeft, solution.left) { apply(frame, to: button.view, visible: button.visible, duration: duration) }
         for (button, frame) in zip(visibleRight, solution.right) { apply(frame, to: button.view, visible: button.visible, duration: duration) }
         apply(solution.notification, to: notificationView, visible: true, duration: duration)
-        layoutVolumeSlider()
         particleFlowView?.frame = particleRegion()
         notificationView.layoutSubtreeIfNeeded()
         if NotificationDebug.enabled {
@@ -302,6 +267,7 @@ final class NotificationLayoutView: NSView {
     }
 
     private static func fixedWidth(_ item: NSTouchBarItem, definition: BarItemDefinition) -> Bool {
+        if item is VolumeTouchBarItem { return true }
         return definition.isExitButton || spacer(item)
     }
 

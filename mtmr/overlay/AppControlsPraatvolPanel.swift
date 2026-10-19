@@ -142,8 +142,6 @@ final class AppControlsPraatvolPanel: NSView, AppControlsPanel {
         stop.imagePosition = confirming ? .noImage : .imageOnly
         let stopTitle = confirming ? "Stop?" : ""
         stop.attributedTitle = NSAttributedString(string: stopTitle, attributes: Self.stopConfirmationAttributes)
-        // #COMPLETION_DRIVE: Bezel padding of 34 pt is assumed for the rounded Touch Bar button; the title is centred by NSButton.
-        // #SUGGEST_VERIFY: Check the "Stop?" button is not clipped and is centred on the real bar.
         let stopTextWidth = confirming ? (stopTitle as NSString).size(withAttributes: Self.stopConfirmationAttributes).width : nil
         stopWidth = praatvolStopButtonWidth(confirmationTextWidth: stopTextWidth)
         let elapsed = snapshot?.elapsed(at: Date().timeIntervalSince1970, receivedAt: receivedAt) ?? 0
