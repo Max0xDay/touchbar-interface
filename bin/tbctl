@@ -7,7 +7,7 @@ Protocol: AF_UNIX/SOCK_STREAM, one UTF-8 JSON object per newline, at most
 <=86400; a title makes two lines: heading, then text smaller), {"cmd":"clear"},
 {"cmd":"button",...}, {"cmd":"buttons"}, {"cmd":"app","id":"stats"}, {"cmd":"apps"},
 {"cmd":"fan","mode":"cool","percent":40} (mode and percent optional),
-{"cmd":"particles","count":30,"seconds":5.5,"color":"#34C759","style":"dots"}
+{"cmd":"particles","count":45,"seconds":2.5,"color":"#34C759","style":"dots"}
 (particle options optional; style dots or sparks).
 Each command gets {"ok":true} or {"ok":false,"error":"..."} plus newline.
 Unknown fields are reserved for extensions; unknown commands are rejected.
@@ -41,9 +41,12 @@ def parseArguments():
     notificationParser.add_argument("--seconds", type=float)
     notificationParser.add_argument("--title", help="heading line; TEXT then shows smaller below it")
     notificationParser.add_argument("--app", metavar="BUNDLE_ID", help="show this app's icon, e.g. com.microsoft.teams2")
-    particleParser = commands.add_parser("particles", parents=[sharedOptions], help="preview the left-side charging particle flow")
-    particleParser.add_argument("--count", type=int, help="particle count, 1-200 (default 30)")
-    particleParser.add_argument("--seconds", type=float, help="total effect duration, 0.5-10 seconds (default 5.5)")
+    particleParser = commands.add_parser("particles", parents=[sharedOptions], help="preview the left-side charging or USB particle flow")
+    particlePreset = particleParser.add_mutually_exclusive_group()
+    particlePreset.add_argument("--usb", action="store_true", help="preview a short blue accessory sparks burst")
+    particlePreset.add_argument("--trickle", choices=["on", "off"], help="force trickle on; off restores real charging state")
+    particleParser.add_argument("--count", type=int, help="particle count, 1-200 (default 45)")
+    particleParser.add_argument("--seconds", type=float, help="total effect duration, 0.5-10 seconds (default 2.5)")
     particleParser.add_argument("--color", help="particle color, #rrggbb (default #34C759)")
     particleParser.add_argument("--style", choices=["dots", "sparks"], help="particle shape (default dots)")
     commands.add_parser("clear", parents=[sharedOptions])
@@ -91,7 +94,12 @@ def parseArguments():
                 parser.error("--seconds must not exceed 86400")
             command["seconds"] = arguments.seconds
     if arguments.command == "particles":
-        command.update(particleFields(arguments, parser))
+        if arguments.usb:
+            command["preset"] = "usb"
+        elif arguments.trickle is not None:
+            command["trickle"] = arguments.trickle == "on"
+        else:
+            command.update(particleFields(arguments, parser))
     if arguments.command == "button":
         command.update(buttonFields(arguments, parser))
     commandJson = json.dumps(command, ensure_ascii=False, separators=(",", ":"))

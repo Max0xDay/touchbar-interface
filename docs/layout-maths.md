@@ -1,55 +1,118 @@
 # Notification layout maths
 
-> The worked examples use W=1085, the solver's fallback width. The real host width on this bar is 1004 pt (Verified 2026-10-06). The rules are the same; only the numbers change.
+The real Touch Bar host measures **1004 × 30 points (pt)**.
+The container uses **1085 pt only as a fallback** before usable bounds exist.
+The template fixtures below deliberately use 1085 pt; the actual layout uses the measured host width.
 
-Applies only when a `notification` item is present. Patch `0003-layout-solver.patch` replaces `0002`'s stack sizing with `NotificationLayoutView` and the AppKit-free `NotificationLayoutSolver`. Without a notification, `BasicView` keeps upstream's stack and gestures. The overlays implement direct-touch swipes and animated text. Patch `0004-live-buttons.patch` adds ids/live state hooks; visibility updates re-solve the same container without rebuilding the bar.
+My TouchBar My Rules (MTMR) uses the solver only if a `notification` item exists.
+Patch `0003-layout-solver.patch` replaces stack geometry with `NotificationLayoutView` and the AppKit-free `NotificationLayoutSolver`.
+Without a notification item, `BasicView` retains the upstream stack and gestures.
+Patch `0004-live-buttons.patch` adds live identifiers and visibility updates without a bar reload.
 
 ## Geometry and constant text size
 
-- `W` is the custom item's host bounds width, otherwise its view bounds width. Unavailable bounds use a tagged **1085 pt** fallback. The host spanning the modal bar still needs hardware confirmation.
-- All item heights are **30 pt**, inter-item gaps **8 pt**. Left starts at `x=0`; right ends at `x=W`, always at configured widths. Right-item `minWidth` is ignored by the container (malformed/negative values are still rejected by existing decoding).
-- `Lw` / `Rw` = sum of group widths plus `8 * max(0, count-1)`.
-- Nominal notification width: `N0 = W - 2*max(Lw,Rw) - 2*padding`. Position the final notification at `x=(W-N)/2`, exactly centred on `W/2` with equal bar-edge margins.
-- **15 pt regular monospaced system font**, never shrunk: it leaves comfortable vertical room in a 30 pt bar. Its measured glyph advance on macOS 14.7.6 is **9.2724609375 pt**. This measurement is tagged in `NotificationTextMetrics` and checked against AppKit by the standalone tests.
-- Retain **12 pt inner inset** on either side. The label spans the area width minus these insets, with a font-height frame vertically centred in the area. Every width change recomputes its frame and capacity.
-- `capacity = min(maxChars, floor(max(0, N-24)/glyphWidth))`. Longer text becomes `capacity-1` characters plus `…`; capacity 1 gives only `…`, capacity 0 gives blank. Whitespace is normalized. Native tail truncation also handles wider Unicode glyphs. The monospaced advance is a character-budget estimate, not a promise that arbitrary Unicode graphemes have identical widths.
-- Preferred width: `Npref = ceil(maxChars * glyphWidth + 24)`, with the **120 pt floor** also applying to the default minimum. For 40 characters, **Npref=395**.
+- `W` denotes the custom item's host width, or its own bounds width if host bounds are unavailable.
+  The container uses 1085 if neither width is finite and positive.
+- Every item has height 30 pt; adjacent items within an edge group have an 8 pt gap.
+  The left group starts at zero; the right group ends at `W`.
+- `Lw` and `Rw` equal their group widths, including `8 * max(0, count - 1)` for gaps.
+- Nominal notification width is `N0 = W - 2 * max(Lw, Rw) - 2 * padding`.
+  Final notification origin is `x = (W - N) / 2`, with equal bar-edge margins.
+- One-line text uses the 15 pt regular monospaced system font.
+  The measured glyph advance on macOS 14.7.6 is `9.2724609375` pt.
+  Standalone AppKit tests compare that constant with the font.
+- Each side retains a 12 pt inner inset.
+  The label centres vertically and recalculates capacity after a width change.
+- One-line text without an icon uses `capacity = min(maxChars, floor(max(0, N - 24) / glyphWidth))`.
+  Longer text retains `capacity - 1` characters and an ellipsis.
+  Capacity one displays only an ellipsis; capacity zero displays blank text.
+- Whitespace collapses to single spaces.
+  Native tail truncation also handles wider Unicode glyphs.
+  The character budget does not imply equal widths for all Unicode graphemes.
+- Preferred width is `Npref = max(120, ceil(maxChars * glyphWidth + 24))`.
+  Forty characters require 395 pt; the actual layout's 36 characters require 358 pt.
 
-Text/arrival/expiry/selection are not solver inputs. Reload creates a new container; width changes re-solve it. Text animations affect only the label layer's opacity and transform. Live-button visibility changes update geometry as described below.
+Icons occupy 30 pt visually, but the text calculation reserves an 18 pt slot and a 6 pt gap.
+Two-line entries use a 12 pt semibold heading and a 10 pt grey body.
+Those entries use measured proportional text and native truncation rather than the monospaced character budget.
+
+Notification arrival, selection, and expiry do not affect solver inputs.
+Text animation changes opacity and transform, not geometry.
+A reload creates a new container; a width or live visibility change recalculates geometry.
+
+### Actual layout
+
+The left group contains universal control at 30 pt and a 1 pt spacer: `Lw = 30 + 8 + 1 = 39`.
+The right group contains App Controls at 340 pt, including its switcher: `Rw = 340`.
+The actual layout contains no left Teams buttons or separate exit item.
+
+```text
+W = 1004; padding = 16; maxChars = 36; minWidth = 358
+Universal control: (x=0, width=30)
+Spacer:            (x=38, width=1)
+Notification:      (x=356, width=292), centre=502
+App Controls:      (x=664, width=340), trailing edge=1004
+```
+
+The notification width is `1004 - 2 * 340 - 32 = 292`, below the 358 pt minimum.
+The solver logs a warning but preserves the right group and the fixed control.
+A right zone at most `(1004 - 358 - 32) / 2 = 307` pt preserves the minimum.
+The particle region occupies `x=0` through the notification origin, independently of button geometry.
 
 ## Left-only scaling
 
-If `N0 >= minWidth`, no buttons shrink. Apply optional `maxWidth` to N afterward.
+If `N0 >= minWidth`, every button keeps its nominal width.
+The solver applies an optional `maxWidth` cap afterward.
 
-Otherwise shrink **only left buttons**, proportionally to their available reductions (`width - buttonMinWidth`), toward the target group width `floor((W-minWidth-2*padding)/2)`. Never shrink the left group below `Rw`: doing so cannot increase N. Stop at the target, at `Lw=Rw`, or when left reductions are exhausted, whichever is reached first. The right group is never shrunk or hidden.
+If `N0 < minWidth`, only left buttons can shrink.
+The target group width is `floor((W - minWidth - 2 * padding) / 2)`.
+The solver apportions reductions according to each button's available reduction, `width - buttonMinWidth`.
+The solver stops at the target, at the right-group width, or after all available reductions.
+The right group never shrinks or disappears.
 
-Left-button minimum defaults to 60% of nominal width, rounded to a whole point. Exit and spacer never shrink. A spacer is a borderless blank button with no image, background or actions. Widths without explicit `width` use fitting size at container creation. Below the notification minimum, accept smaller N and truncate text without changing font size; a warning logs once per width solve.
+A left button's default minimum is 60% of nominal width, rounded to a whole point.
+Explicit minima cannot exceed nominal width.
+Universal control, exit buttons in custom layouts, and blank spacers keep fixed widths.
+A spacer is borderless, blank, and free of images, backgrounds, and actions.
+An item without explicit width uses its initial fitting width.
 
-Allocation uses largest fractional remainders, ties resolved in configured order. Widths/padding are whole points; minimum rounds up, cap down. Integral W normally uses an N of the same parity so origins are integral. Fractional W, or a strict 120 cap on odd W, uses fractional origins to retain the exact centre and floor.
+The solver accepts a notification width below the requested minimum and logs a warning per solve.
+Text truncates without a smaller font.
+Largest fractional remainders determine integer reductions; ties follow configured order.
+Padding rounds to whole points, minimum rounds upward, and maximum rounds downward.
+Integral `W` normally requires notification width with matching parity, so origins remain integral.
+Fractional widths or a strict 120 pt cap can require fractional origins to preserve the centre.
 
 ### Infeasible widths (tagged exceptional policy)
 
-If nominal N after left scaling is below 120, reserve a centred 120 pt floor (121 on odd integral W when permitted), and hide only overflowing left items, keeping a fitting prefix. Reduce outer padding if the floor alone leaves insufficient margin. If `W<120`, the area uses W instead.
+If the width after scaling falls below 120, the solver reserves a centred 120 pt floor.
+An odd integral bar can use 121 pt if the cap permits that width.
+If `W < 120`, the notification uses `W`.
+The solver reduces padding if necessary and retains only a fitting prefix of left items.
 
-**The right group always keeps its widths/order and its trailing edge at W.** Below `W = 2*(Rw+padding)+120`, a centred 120 pt floor, an untouched right group and non-overlap cannot all coexist. Right buttons may then overlap the notification or extend beyond the clipped container. This is an explicit tagged interpretation for impossible inputs, not a supported physical layout; do not configure such widths. Earlier documentation's right-shrink/hide policy is superseded by the user decision.
+Keep `W >= 2 * (Rw + padding) + 120` to avoid an impossible right-side fit.
+Below that threshold, the fixed right group can overlap the notification or extend beyond the clipped container.
+The solver preserves right widths, order, and trailing edge even for these exceptional inputs.
+Source comments explicitly identify this exceptional policy.
 
 ## Options
 
-All dimensions are points. `layouts/template.json` needs no changes.
+All dimensions use points.
 
-| Where | Option | Default / rule |
+| Location | Option | Default or rule |
 |---|---|---|
-| Notification | `maxChars` | 40; integer 1...1000 |
-| Notification | `defaultSeconds` | 8; positive, at most 86400 |
-| Notification | `padding` | 16; finite, nonnegative outer padding |
-| Notification | `minWidth` | `max(120,Npref)`; explicit finite value at least 120 overrides it |
-| Notification | `maxWidth` | No cap; finite, at least `minWidth` after rounding |
-| Notification | `fadeSeconds` | 0.35; finite 0...2; 0 disables all animations |
-| Left item | `minWidth` | 60% of nominal, rounded; nonnegative explicit values capped at nominal; ignored for exits/spacers |
-| Right item | `minWidth` | Ignored for sizing; right widths always remain configured |
-| Button | `keepSlotWhenHidden` | false; true reserves the invisible button's width/position/gaps |
+| Notification | `maxChars` | The default is 40; valid integers span 1–1000. |
+| Notification | `defaultSeconds` | The default is 8; the value must be positive and at most 86400. |
+| Notification | `padding` | The default is 16; the finite outer padding must be nonnegative. |
+| Notification | `minWidth` | The default is `Npref`; an explicit finite value must be at least 120. |
+| Notification | `maxWidth` | No cap applies by default; the rounded cap must equal or exceed the rounded minimum. |
+| Notification | `fadeSeconds` | The default is 0.35; valid finite values span 0–2. Zero disables notification and visibility transitions. |
+| Left item | `minWidth` | The default is 60% of nominal width. Fixed items ignore the minimum. |
+| Right item | `minWidth` | The container ignores the minimum for geometry; decoding still rejects negative or malformed values. |
+| Button | `keepSlotWhenHidden` | The default is false; true reserves width and gaps for an invisible button. |
 
-Contradictory `maxWidth < minWidth` is rejected (existing tagged conservative policy). An exact even cap on odd W may lose a point for integral centring. Example:
+The decoder rejects contradictory maximum and minimum values after rounding.
+An even cap on an odd bar can lose one point to preserve integral centring.
 
 ```json
 {"type":"notification","maxChars":40,"fadeSeconds":0.35,"minWidth":300,"maxWidth":500}
@@ -57,91 +120,114 @@ Contradictory `maxWidth < minWidth` is rejected (existing tagged conservative po
 
 ## Worked examples (tested)
 
-All use W=1085, padding=16, maxChars=40, 15 pt font, glyphWidth=9.2724609375 and Npref=395. The right group is always `100+8+100=208`, at `(877,100)` and `(985,100)`, ending at 1085.
+These examples represent template-style fixtures, not the actual layout.
+All examples use `W=1085`, padding 16, `maxChars=40`, and preferred width 395.
+The right group is `100 + 8 + 100 = 208`, with origins 877 and 985.
 
 ### (a) Three left icons
 
-`Lw=30+1+3*75+4*8=288`. N0=`1085-2*288-32=477`, above 395, so nothing shrinks.
+The group width is `Lw = 30 + 1 + 3 * 75 + 4 * 8 = 288`.
+The nominal notification width is `1085 - 2 * 288 - 32 = 477`, so no button shrinks.
 
 ```text
 Left (x,width): (0,30) (38,1) (47,75) (130,75) (213,75)
-Notification:  (304,477), centre 542.5, margins 304/304, capacity 40
+Notification:  (304,477), centre=542.5, margins=304/304, capacity=40
 Right:         (877,100) (985,100)
 ```
 
-The 1 pt spacer retains the 17 pt gap after exit. Gaps to the notification are 16 left / 96 right; bar-edge margins remain equal.
+The spacer leaves a 17 pt gap after the template exit button.
+The notification has gaps of 16 pt on the left and 96 pt on the right.
+The bar-edge margins remain equal.
 
 ### (b) Four left icons (explicit test fixture, not layouts/template.json)
 
-`Lw=30+1+4*75+5*8=371`, N0=`1085-742-32=311`. Target left width=`floor((1085-395-32)/2)=329`. Reduce by 42 pt, proportionally across four 30 pt capacities. Integer allocation gives icon widths **64,64,65,65** (reductions 11,11,10,10).
+The group width is `Lw = 30 + 1 + 4 * 75 + 5 * 8 = 371`.
+The nominal notification width is 311; the target left width is 329.
+A 42 pt reduction across four 30 pt capacities produces button widths 64, 64, 65, and 65.
 
 ```text
 Left (x,width): (0,30) (38,1) (47,64) (119,64) (191,65) (264,65)
-Lw=329; Rw=208 unchanged
-Notification:  (345,395), centre 542.5, margins 345/345, capacity 40
-Right:         (877,100) (985,100), trailing edge 1085
+Lw=329; Rw=208
+Notification:  (345,395), centre=542.5, margins=345/345, capacity=40
+Right:         (877,100) (985,100), trailing edge=1085
 ```
 
 ### (c) Exhausted left capacity: six icons
 
-`Lw=30+1+6*75+7*8=537`, N0=-21 (not rendered). Target Lw is still 329, requiring 208 pt reduction, but the six icons have only `6*(75-45)=180` pt capacity. All reach **45 pt**, leaving Lw=357.
+The nominal left width is `30 + 1 + 6 * 75 + 7 * 8 = 537`.
+The nominal notification width is -21, which the container never renders.
+The target left width remains 329, but available reduction totals only 180 pt.
+Every icon reaches 45 pt, so `Lw=357` and `N=339`.
 
-N=`1085-2*357-32=339`, below preferred 395 but above the floor. The notification is `(373,339)`, with margins 373/373 and capacity `floor((339-24)/9.2724609375)=33`. Font remains 15 pt; longer text is 32 characters plus ellipsis. Right remains exactly 100/100, ending at 1085.
+The notification occupies `(373,339)` with equal margins of 373 pt.
+The capacity is 33 characters, so longer text uses 32 characters and an ellipsis.
+The font remains 15 pt, and the right group still ends at 1085.
 
-A separate test with Lw=408 and Rw=288 on W=800 stops left shrinking at 288; N=192. Shrinking further could not help. Right widths remain 140/140.
+A separate fixture starts with `Lw=408` and `Rw=288` at `W=800`.
+Left reduction stops at 288; the notification width is 192.
+The two right buttons remain 140 pt each.
 
 ## Live visibility: collapse by default (patch 0004)
 
-`visible:false` disables taps and targets alpha 0. By default the hidden button is
-removed from the **solver inputs**, not from the bar/view hierarchy. Solve with the
-remaining visible items, keeping 8 pt gaps only between them and each group pinned
-to its edge. Showing reintroduces the original nominal width and order. Notification
-width may change because `max(Lw,Rw)` changes; it always stays centred on W/2. Right
-buttons never shrink; hiding a left button does not move the right group.
+`visible:false` disables actions and sets alpha to zero.
+By default, the container removes the button from solver inputs while retaining the view hierarchy.
+Remaining visible buttons retain order and 8 pt gaps.
+Each edge group remains pinned to its edge, and the notification remains centred.
+The container sets the faded view's `isHidden` flag after the transition.
 
-`keepSlotWhenHidden:true` is the opt-in exception: alpha/taps change but its slot
-stays in the solver inputs. All frames remain identical. There is no
-`collapseWhenHidden` option. Widths/minima and the pure solver's arithmetic are
-unchanged; the container simply filters inputs and maps solved frames back to views.
+`keepSlotWhenHidden:true` preserves the invisible button's width, position, and gaps.
+No `collapseWhenHidden` option exists.
+The container filters inputs and maps frames back to views without a change to solver arithmetic.
 
 ### Three icons → hide the first (worked example, tested)
 
-At W=1085, before hiding: `Lw=288`, `Rw=208`, `N=477`, notification `(304,477)`.
-After hiding the first icon, exit/spacer stay:
+The template-style fixture starts with `Lw=288`, `Rw=208`, and `N=477` at `W=1085`.
+After the first icon hides, the template exit and spacer remain:
 
 ```text
 Lw = 30+1+2*75+3*8 = 205
 Rw = 100+8+100 = 208
 N  = 1085-2*max(205,208)-32 = 637
 Left visible: (0,30) (38,1) (47,75) (130,75)
-Notification: (224,637), centre 542.5
-Right:        (877,100) (985,100), unchanged
+Notification: (224,637), centre=542.5
+Right:        (877,100) (985,100)
 ```
 
-The other two icons slide into the first two icon slots. N grows by 160 pt as Lw
-falls below Rw; any further left-width reduction cannot grow N past the right-group
-bound. Showing the mic restores the original `(47,75) (130,75) (213,75)` icon frames
-and `(304,477)` notification. `keepSlotWhenHidden:true` instead retains Lw=288/N=477.
+The other icons move into the first two slots.
+The notification gains 160 pt, then the right-group width limits further growth.
+Show restores the original frames; `keepSlotWhenHidden:true` instead preserves `Lw=288` and `N=477` throughout.
 
-All affected frame/alpha changes use coordinated **0.2 s ease-in-out** layer
-animations, disabled under Reduce Motion or `fadeSeconds=0`. Frames and model alpha
-are immediately set to the latest solver result. New changes sample presentation
-geometry, cancel old animations and restart; no asynchronous completion writes
-stale frames. Tests compare every visible group/notification frame to the pure
-solution, centring, right pins, keep-slot stability and rapid hide/show restoration.
-Physical animation appearance and host-layer behavior remain tagged/unverified.
+Affected frames and alpha use coordinated 0.2-second ease-in-out animations.
+Reduce Motion or `fadeSeconds:0` disables those animations.
+Model values immediately reflect the latest solution.
+Rapid updates sample presentation geometry and cancel earlier animations.
+Tests check pure geometry, centring, right pins, reserved slots, and rapid visibility changes.
+Hardware appearance remains a separate check.
 
 ## Touches, animations and diagnostics
 
-`NotificationAreaView` is the transparent, full-area hit target: its hit-test override returns itself rather than the label; `allowedTouchTypes=.direct` and `wantsRestingTouches=true`. Direct began/moved/ended/cancelled callbacks replace the one-finger pan recognizer. Expiry pauses at begin and resumes at end/cancel/detachment. A dominant horizontal movement of at least **20 pt** selects once per touch: **left=next, right=previous**, wrapping endlessly in both directions. The physical bar reports no vertical movement. Selection happens during movement so reaching the edge does not lose the swipe.
+`NotificationAreaView` receives hits across the full area and keeps those hits away from its labels.
+The view accepts direct touches and resting touches.
+Touch begin pauses all notification deadlines; release, cancellation, or detachment resumes the deadlines.
+A dominant horizontal movement of at least 20 pt selects one entry per touch.
+Left selects next; right selects previous; both directions wrap.
+The physical bar reports no vertical movement.
 
-The old item view is actually reparented into the container, not replaced. Label hit-targeting and pan-recognition thresholds on a 30 pt strip are the suspected failure, not a confirmed hardware diagnosis; the direct-touch path bypasses both. Existing ancestor multi-finger recognizers and the no-notification stack path are unchanged.
+A tap without a swipe recalls the newest hidden live entry if the area is empty.
+Display expiry leaves hidden entries untouched and never automatically advances the queue.
+[Layouts](layouts.md#notification-queue) defines the 8-second display limit and unread dot.
+The container reparents original item views and retains ancestor gestures and the no-notification stack path.
 
-New text fades in over `fadeSeconds`, ease-out, with a subtle **3 pt upward settling slide** (starts 3 pt below rest). Expiry to blank fades out for **0.25 s**, ease-in. Switching entries fades the old text out for **0.12 s**, then reveals the new text. Reduce Motion uses only **0.15 s fades**, no slide; `fadeSeconds=0` takes precedence and disables everything. Pending completions are cancelled and generation-checked; presentation opacity is sampled before cancelling layer animations. Latest text wins, including rapid clear/update sequences and geometry changes. Model opacity/transform are always set to final values so cancelled animations cannot leave half-faded text.
+New text fades in over `fadeSeconds` with ease-out and a 3 pt upward slide from below.
+Expiry fades out over 0.25 seconds with ease-in.
+Entry changes fade out over 0.12 seconds before the new entry appears.
+Reduce Motion uses 0.15-second fades without the slide.
+`fadeSeconds:0` disables these transitions.
+Generation checks and presentation-opacity samples protect rapid updates from stale animation completions.
 
-`NotificationDebug.enabled` defaults to **true for now; turn it off after hardware diagnosis**. Cheap `NSLog` messages prefixed `MTMR-notif:` are in `NotificationAreaView.swift` (event state, direct-touch count, locations/translations, area/label frames, hierarchy at creation/attachment and first window attachment) and `NotificationLayoutView.swift` (container size, notification frame, label frame per solve). No notification content is logged.
-
-User-run observation command (not run by the agent):
+`NotificationDebug.enabled` currently defaults to true.
+`MTMR-notif:` logs include touch counts, coordinates, hierarchy, and area/container/label frames.
+These debug messages exclude notification text.
 
 ```bash
 /usr/bin/log show --predicate 'process == "MTMR"' --last 5m
@@ -156,6 +242,13 @@ bash mtmr/tests/run-tests.sh
 git -C /path/to/MTMR status --porcelain
 ```
 
-The runner compiles the pure solver, standalone AppKit views and temporary socket harnesses without launching MTMR.app or creating a Touch Bar. It tests widths, preferred/default/explicit minima, right preservation, capacity/truncation, font metrics, label centring after resizing, hit-testing, swipe-direction thresholds, fade durations, rapid cancellation, expiry-to-blank, zero-duration animation and unchanged no-notification stack behavior. Actual touch delivery, animation appearance and Reduce Motion on hardware still need user verification.
+The runner checks the pure solver, standalone views, and temporary socket harnesses without an installed layout change.
+The view harness requires a prior build because the harness compiles prepared sources and bridge objects.
+The fixture coverage includes widths, minima, right preservation, text capacity, font metrics, swipes, and transition cancellation.
+A known stale notification assertion prevents a clean full-suite result; see [the build runbook](runbook-build-mtmr.md#build).
+Physical touch delivery, animation appearance, and Reduce Motion require hardware checks.
 
-Rollback: restore the previous overlay/test/docs files from the task's `/tmp/mtmr-notification-fix.fNoEGQ/` backup and rebuild. The backup also holds the preceding app bundle. That historical rollback predates patch 0004; live-button rollback and protocol details are in [live-buttons.md](live-buttons.md). Live config, defaults, permissions and LaunchAgents remain untouched by the live-button task. Do not launch or replace the running app as part of rollback without user approval.
+To roll back, restore the earlier patches and overlay sources from version control.
+Rebuild the app afterward.
+Restore a layout separately through `tbctl layout` or an in-place backup write.
+Builds and tests leave live configuration, permissions, and LaunchAgents unchanged.

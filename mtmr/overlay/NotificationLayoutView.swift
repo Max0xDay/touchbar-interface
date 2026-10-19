@@ -24,7 +24,9 @@ final class NotificationLayoutView: NSView {
     private var solvedWidth: Double?
     private var visibilityObserver: NSObjectProtocol?
     private var particlesObserver: NSObjectProtocol?
+    private var chargingObserver: NSObjectProtocol?
     private weak var particleFlowView: ParticleFlowView?
+    private weak var usbParticleFlowView: ParticleFlowView?
 
     init(items: [NSTouchBarItem], definitions: [NSTouchBarItem.Identifier: BarItemDefinition], notification: NotificationTouchBarItem) {
         left = Self.buttons(items, definitions: definitions, alignment: .left)
@@ -48,12 +50,20 @@ final class NotificationLayoutView: NSView {
         particlesObserver = NotificationCenter.default.addObserver(forName: Notification.Name("MTMRParticles"), object: nil, queue: .main) { [weak self] notification in
             guard let self = self else { return }
             let fields = notification.userInfo ?? [:]
+            if fields["preset"] as? String == "usb" {
+                self.playUSBParticles()
+                return
+            }
             self.playParticles(count: fields["count"] as? Int ?? ParticleFlowView.defaultCount,
                                seconds: fields["seconds"] as? Double ?? ParticleFlowView.defaultSeconds,
                                color: fields["color"] as? NSColor ?? ParticleFlowView.defaultColor,
                                style: fields["style"] as? String ?? "dots")
         }
         ChargingMonitor.shared.start()
+        USBDeviceMonitor.shared.start()
+        chargingObserver = NotificationCenter.default.addObserver(forName: ChargingMonitor.chargingChanged, object: nil, queue: .main) { [weak self] _ in
+            self?.updateTrickle()
+        }
         needsLayout = true
     }
 
@@ -88,8 +98,25 @@ final class NotificationLayoutView: NSView {
         guard window != nil else {
             particleFlowView?.stop()
             particleFlowView?.removeFromSuperview()
+            usbParticleFlowView?.stop()
+            usbParticleFlowView?.removeFromSuperview()
             return
         }
+        updateTrickle()
+    }
+
+    private func updateTrickle() {
+        guard window?.isVisible == true else { return }
+        guard !isHiddenOrHasHiddenAncestor else { return }
+        if ChargingMonitor.shared.shouldTrickle {
+            layoutSubtreeIfNeeded()
+            if particleFlowView == nil {
+                let particles = ParticleFlowView(frame: particleRegion())
+                particleFlowView = particles
+                addSubview(particles, positioned: .above, relativeTo: nil)
+            }
+        }
+        particleFlowView?.setTrickling(ChargingMonitor.shared.shouldTrickle)
     }
 
     func playParticles(count: Int = ParticleFlowView.defaultCount, seconds: Double = ParticleFlowView.defaultSeconds, color: NSColor = ParticleFlowView.defaultColor, style: String = "dots") {
@@ -99,11 +126,35 @@ final class NotificationLayoutView: NSView {
         guard !isHiddenOrHasHiddenAncestor else { return }
         particleFlowView?.stop()
         particleFlowView?.removeFromSuperview()
+        if let usbParticles = usbParticleFlowView {
+            usbParticleFlowView = nil
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = 0.25
+                usbParticles.animator().alphaValue = 0
+            }, completionHandler: {
+                usbParticles.stop()
+                usbParticles.removeFromSuperview()
+            })
+        }
         layoutSubtreeIfNeeded()
         let particles = ParticleFlowView(frame: particleRegion())
         particleFlowView = particles
         addSubview(particles, positioned: .above, relativeTo: nil)
         particles.play(count: count, seconds: seconds, color: color, style: style)
+        particles.setTrickling(ChargingMonitor.shared.shouldTrickle)
+    }
+
+    private func playUSBParticles() {
+        guard window?.isVisible == true else { return }
+        guard !isHiddenOrHasHiddenAncestor else { return }
+        usbParticleFlowView?.stop()
+        usbParticleFlowView?.removeFromSuperview()
+        layoutSubtreeIfNeeded()
+        let particles = ParticleFlowView(frame: particleRegion())
+        usbParticleFlowView = particles
+        addSubview(particles, positioned: .above, relativeTo: nil)
+        let blue = NSColor(srgbRed: 10 / 255, green: 132 / 255, blue: 255 / 255, alpha: 1)
+        particles.play(count: 20, seconds: 2.5, color: blue, style: "sparks")
     }
 
     private func particleRegion() -> NSRect {
@@ -138,6 +189,7 @@ final class NotificationLayoutView: NSView {
         for (button, frame) in zip(visibleRight, solution.right) { apply(frame, to: button.view, visible: button.visible, duration: duration) }
         apply(solution.notification, to: notificationView, visible: true, duration: duration)
         particleFlowView?.frame = particleRegion()
+        usbParticleFlowView?.frame = particleRegion()
         notificationView.layoutSubtreeIfNeeded()
         if NotificationDebug.enabled {
             let labelFrame = notificationView.subviews.first?.frame ?? .zero
@@ -239,6 +291,7 @@ final class NotificationLayoutView: NSView {
     deinit {
         if let observer = visibilityObserver { NotificationCenter.default.removeObserver(observer) }
         if let observer = particlesObserver { NotificationCenter.default.removeObserver(observer) }
+        if let observer = chargingObserver { NotificationCenter.default.removeObserver(observer) }
     }
 
     private static func buttons(_ items: [NSTouchBarItem], definitions: [NSTouchBarItem.Identifier: BarItemDefinition], alignment: Align) -> [Button] {

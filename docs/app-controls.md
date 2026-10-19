@@ -1,142 +1,341 @@
 # App Controls
 
-App Controls is the zone on the right end of the bar. The zone shows one **panel** at a time. A panel is a small control surface for one app or topic, for example YouTube Music or Stats.
+App Controls occupies the right end of the Touch Bar in My TouchBar My Rules (MTMR).
+The zone shows one panel for an app or topic at a time.
+The selected panel persists in UserDefaults under `AppControlsPanel` across restarts and layout reloads.
 
-The user picks the panel, and the choice stays the same after a restart or a layout reload. Teams is the one focus-driven exception: focusing a meeting window selects Teams; ending the call restores the previous panel unless the user has manually selected a panel during the call. Blur never switches away.
+The user selects panels through the switcher or the socket.
+Teams provides one automatic exception: meeting-window focus selects Teams once per call.
+Call end restores the previous panel unless a manual selection cancels restoration.
+Focus loss leaves Teams selected.
 
-```
-[✕][gap][ left buttons ] |  [ notification area ]  | [ panel ............................ ][SW]
-                                                        switcher button: icon of the current panel ─┘
+```text
+[universal control][gap][ particle region ] [ notification area ] [ panel ][switcher]
 ```
 
 ## Panels
 
-| Panel | ID | Icon | Contents | Tap |
-|---|---|---|---|---|
-| System | `system` | Clock tile (graphite tile, white clock at 10:10) | Three columns: time with seconds, weekday over date, and a bullet list with the ISO week and battery level. | Nothing |
-| Teams | `teams` | Teams app icon, or graphite people tile | Meeting title over elapsed time, with mic and camera buttons; grey “No meeting” or “Teams offline” otherwise. | Mic/camera: toggle without focusing Teams. Meeting-window focus selects this panel automatically. |
-| YouTube Music | `ytmusic` | Pear app icon | Cover, title, artist, a thin progress line, and the previous / play-pause / next buttons. | Cover or title: brings Pear to the front, or opens Pear if it does not run. |
-| VS Code | `vscode` | VS Code icon | A window toggle, a Run button (▶), and a command button (⌘). The window toggle shows the current window in the colour of that window: a colour stripe, the project name, the open file, and one coloured dot for each window. The current window has the large dot with a white ring. | Window toggle: goes to the next window. If VS Code is not in front, the first tap brings the current window to the front. Run: presses F5 (Run > Start Debugging). Command button: opens the Command Palette (⇧⌘P). |
-| praatvol | `praatvol` | Waveform tile (graphite tile, white waveform; switcher only) | Full-width Room/Call buttons when idle. Recording: red pulsing dot, elapsed time, Room/Call pill, microphone and signal dots. Processing: spinner and progress line. Review: “Transcribe?” with duration/size or a warning. Offline: centred grey text. Saved: green check for 4 s. | Room/Call: start recording. Stop: tap twice within 3 s while recording, once during setup. Review checkmark: Transcribe; cross: Skip (keep audio only). |
-| Stats | `stats` | Stats app icon | Four cells: CPU (a ring with the total and a heat grid with one square for each core: efficiency cores on top, performance cores below), MEM (a ring with the %), TEMP (a thermometer and the CPU temperature), and NET (download and upload rate). | Opens the Stats app. |
-| lob | `lob` | Terminal tile (orange ">_" on black) | One pill for each lob session: a blue spinner while Claude works, a slow purple arc while pi-delegate runs, a pulsing green dot when Claude finishes and waits for a reply, a grey dot when idle. Always a two-row grid with the same cell size as 4 sessions: 3 sessions leave the top-left cell empty, 1 to 2 stack in the left column, 5 or more add columns. | Nothing |
-| Fan | `fan` | Fan tile (graphite tile, white fan) | A mode button (Apple, Quiet, Cool, Max, Custom); a graph of the last 2 minutes: the temperature line, the actual fan speed (blue area), the speed the mode asks for (dashed blue), and dashed lines at the mode's thresholds (fan on, full speed) and at the 95 °C floor (red); the temperature over the fan RPM. Temperature uses 30–100 °C and fan speed 0–100 % of the same height. In Custom, the graph is replaced by a slider. | Mode button: opens a row with all five modes (current one in the accent colour); tap one to select it. The row closes after 6 s. Custom: touch or drag the slider to set the fan speed. |
+The actual layout lists `system`, `teams`, `lob`, `ytmusic`, `praatvol`, `stats`, and `fan`, in that order.
+The registry also contains `vscode`.
+An initial selection without a valid stored identifier uses System.
+A socket selection can show any registered panel, even outside the layout's panel list.
+The switcher then includes the selected panel before the configured list.
 
-If no panel is selected, App Controls shows the System panel.
+| Panel | Identifier | Icon | Display and action |
+|---|---|---|---|
+| System | `system` | A graphite tile contains a white clock at 10:10. | Three columns show time with seconds, weekday/date, and week/battery. Taps perform no action. |
+| Teams | `teams` | The Teams icon or a graphite people tile identifies the panel. | The meeting name appears above elapsed time. Two buttons toggle the microphone and camera. |
+| YouTube Music | `ytmusic` | The Pear icon identifies the panel. | The panel shows cover, title, artist, progress, and previous/play/next controls. A cover or title tap opens Pear. |
+| VS Code | `vscode` | The Visual Studio Code (VS Code) icon identifies the panel. | A window control cycles windows. Run sends F5; Command opens the Command Palette with ⇧⌘P. |
+| praatvol | `praatvol` | A waveform tile identifies the panel in the switcher. | Room/Call buttons start capture. The panel shows recording, progress, review, and attention states. |
+| Stats | `stats` | The Stats icon identifies the panel. | Four cells show processor load, memory, temperature, and network rates. A tap opens Stats. |
+| lob | `lob` | An orange terminal prompt appears on black. | Each session has a state pill. Taps perform no action. |
+| Fan | `fan` | A graphite tile contains a white fan. | A mode button, history graph, and readout control the fan. Custom replaces the graph with a slider. |
+
+System refreshes every 0.5 seconds and reads battery state every 10 seconds.
+The week number follows International Organization for Standardization (ISO) 8601.
+Stats refreshes every 2 seconds.
+The other panels request a refresh every second while attached to the bar.
 
 ## Use the switcher
 
-1. Tap the switcher button (the app icon at the right edge of the zone).
-2. A row of panel icons replaces the panel. The current panel has the accent colour.
-3. Tap a panel icon to select that panel.
+1. Tap the app icon at the right edge.
+2. Tap a panel icon in the replacement row.
 
-To close the row without a change, tap the switcher button (✕) again. The row closes by itself after 6 seconds.
+The selected icon uses the accent colour.
+Tap the switcher cross to close the row without a selection.
+The row also closes after 6 seconds.
+The row scrolls horizontally if the icons exceed the available width.
 
 ## Colours
 
-- All buttons use the standard grey Touch Bar style. The switcher has no frame: the app icon fills the full bar height (30 pt).
-- All glyph icons use one fixed 18 pt box, centred on the same line (`TouchBarIcon.swift`). App icons in the switcher row use 24 pt.
-- The Touch Bar ignores the button tint setting (`contentTintColor`). Each icon has its colour drawn into the image.
-- The system accent colour marks the selected item.
-- Green, orange, and red show state only. For example, a meter turns orange above 70 % and red above 90 %. The temperature meter turns orange at 80 °C and red at 92 °C.
+- Buttons use the neutral Touch Bar style.
+  The switcher uses a borderless 36-point (pt) button with a 30 pt app icon.
+- `TouchBarIcon.swift` fits symbol glyphs into an 18 pt box.
+  Wide glyphs can use up to 1.4 times the box width.
+  Panel icons use 24 pt before the switcher scales its icon to 30 pt.
+- The Touch Bar ignores `contentTintColor`.
+  State icons therefore contain the tint in the image.
+- The system accent colour marks selection.
+  Green, orange, and red indicate state.
+- Stats load and memory rings turn orange at 70% and red at 90%.
+  The Stats thermometer turns orange at 75 °C and red at 90 °C.
+  Fan temperature uses the same 75 °C and 90 °C thresholds.
 
 ## Data sources
 
-- **YouTube Music:** the player is Pear Desktop (bundle ID `com.github.th-ch.youtube-music`). The panel reads macOS Now Playing through the private MediaRemote framework. Pear publishes title, artist, cover, and play state there. The panel needs no Pear plugin. The Pear API Server plugin stays off.
-- **Play controls:** the buttons send commands to the Now Playing app. If a different app plays media at that time, the buttons control that app. If MediaRemote is not available, the buttons send the media keys.
-- **VS Code windows:** the panel reads the title and the open document of each window through the Accessibility API. MTMR already has the Accessibility permission. A title such as "file.swift — project" gives the project name "project".
-- **Window colours:** the colour key is the project folder path. The panel takes the path of the open document up to the folder with the project name, for example `/Users/you/projects/my-project`. If the window has no document, the key is the project name. A stable hash of the key selects one of eight system colours (blue, purple, pink, orange, teal, green, indigo, yellow). Red is not in the list, because red means "muted" or "problem" on this bar. The colour of a window stays the same when you change files and after a restart. Two projects can get the same colour.
-- **Window order:** the panel sorts the windows by folder path, so the order stays the same when the focus changes.
-- **Stats:** the Stats app has no Application Programming Interface (API). The panel reads the same data directly:
-  - CPU: the load of all cores between two refreshes.
-  - RAM: app memory, wired memory, and compressed memory, divided by the physical memory. Activity Monitor calls this value "Memory Used".
-  - Temperature: the mean of the performance-core and efficiency-core sensors (`pACC` / `eACC`). These are the same sensors that the Stats app uses on M1.
-  - GPU: "Device Utilization %" of the graphics accelerator (IOAccelerator).
-  - NET: the byte counters of all network interfaces except loopback, between two refreshes.
+- **YouTube Music:** Pear Desktop uses bundle identifier `com.github.th-ch.youtube-music`.
+  The panel reads macOS Now Playing through the private MediaRemote framework.
+  The panel needs no Pear plugin or Application Programming Interface (API) server.
+  Pear must run before the panel requests track metadata.
+- **Play controls:** MediaRemote sends commands to the current Now Playing app, which can differ from Pear.
+  Failed or unavailable MediaRemote commands fall back to media keys.
+- **VS Code windows:** The Accessibility API supplies window titles and document paths.
+  The title `file.swift — project` supplies the project name.
+  The document path supplies the file name and project folder where available.
+- **Window colours:** A stable Fowler–Noll–Vo hash (FNV-1a) selects one of eight system colours from the project folder path.
+  The project name supplies the key if the document path is unavailable.
+  The colours are blue, purple, pink, orange, teal, green, indigo, and yellow.
+  Different projects can share a colour.
+- **Window order:** The panel sorts windows by folder path.
+  The window control shows a colour stripe, project, file, and one dot per window.
+  The active window has a larger dot with a white ring.
+  A tap first raises VS Code if another app has focus; subsequent taps cycle windows.
+- **Stats:** The panel reads system counters directly rather than queries the Stats app.
+  Central processing unit (CPU) load uses differences between per-core counters.
+  Memory includes app, wired, and compressed memory, divided by physical memory.
+  Temperature averages the performance-core and efficiency-core sensors named `pACC MTR Temp*` and `eACC MTR Temp*`.
+  Network rates use byte-counter differences across all interfaces except loopback.
+  The first sample lacks processor and network rates.
+  The panel shows no graphics processing unit (GPU) metric.
+
+The Stats processor cell includes a total ring and one square per core.
+Efficiency cores occupy the top row; performance cores occupy the lower row.
+The memory ring shows a percentage without a percent symbol.
+The temperature cell uses a thermometer and a value, without a meter.
+Network arrows use blue for download and green for upload.
 
 ## praatvol
 
-The panel reads the praatvol control socket, not the MTMR socket. Release uses `~/Library/Application Support/praatvol/control.sock`. Dev uses `~/Library/Application Support/praatvol-dev/control.sock`.
+The panel connects directly to praatvol, not through the MTMR socket.
+Release uses `~/Library/Application Support/praatvol/control.sock`.
+Dev uses `~/Library/Application Support/praatvol-dev/control.sock`.
+The layout option `"praatvol":{"app":"dev"}` selects Dev; `"release"` is the default.
+The actual layout selects Dev.
 
-Set `"praatvol": {"app": "dev"}` on the `appControls` layout item to use dev. `"release"` is the default. The everyday layout uses dev for now. VS Code stays registered and can be restored to the layout.
+The protocol uses newline-delimited JavaScript Object Notation (JSON), with at most 4096 bytes before each newline.
+The client opens one `subscribe` connection while the panel remains attached.
+The client expects a version 1 snapshot within 3 seconds and reconnects after 2 seconds on disconnect.
+The client accepts bare snapshots and wrapped `{"ok":true,"status":...}` replies.
+The expected source sends snapshots on connection, on state changes, and each second during recording.
+The client closes the subscription after panel detachment.
 
-The protocol is newline-delimited JSON, at most 4 KiB per line. One `subscribe` connection receives a snapshot on connection, on changes and every second while recording. The client accepts wrapped `{"ok":true,"status":...}` replies and bare snapshots. It reconnects after 2 s while the panel is on the bar and disconnects when the panel leaves the bar. New snapshot fields are optional and may be null; v1 snapshots without them still work. Unknown step strings show a spinner and the capitalised step name rather than failing the connection.
-
-The panel is 30 pt tall, with 8 pt horizontal gaps and measured, vertically centred text rows. There is no left-hand waveform glyph; the tile remains in the switcher only. Text never shrinks and long labels truncate with an ellipsis.
+Optional progress fields can be absent or null.
+Unknown step names show a spinner and the capitalised name.
+The panel uses 30 pt height, 8 pt gaps, measured text, and tail truncation without a smaller font.
+The waveform appears only in the switcher.
 
 | State | Display and controls |
 |---|---|
-| Offline | Centred grey “praatvol offline” across the panel. |
-| Idle / failed | Two equal-width neutral buttons fill the panel: mic + Room and phone + Call. A failed run adds a small red dot inside the Room button. |
-| Starting | Spinner + “Starting”, with a Stop button that cancels on one tap. |
-| Recording | Row 1: pulsing red dot, monospaced elapsed time and grey Room/Call pill. Row 2: microphone name and signal dots. Stop is 30 pt tall with a red glyph; first tap shows red “Stop?” for 3 s, second tap sends stop. |
-| Preparing / uploading / transcribing | Spinner and a 12 pt label above a thin rounded progress line. Preparing uses `preparingFraction`; uploading uses `uploadFraction` and shows a percent. Transcribing estimates `(now - stepStartedAt) / estimatedSeconds` locally each second, capped at 95%, with a `~` prefix. Missing fractions or estimate fields leave the track empty and the spinner running, with no percent. Preparing/uploading cap at 99% while the step is active; no step shows 100% before changing. |
-| Review | “Transcribe?” above duration (`mm:ss` or `h:mm:ss`) and size (decimal MB, one decimal), omitting missing values. If `warnings` is non-empty, an orange triangle and the first truncated warning replace the detail row. Two 56 pt buttons: green checkmark (Transcribe) and neutral cross (Skip). They remain until a pushed snapshot changes the state. |
-| Needs attention | Orange triangle inline with “Needs attention on Mac”; command buttons are disabled. |
-| Saved | Green check + “Saved” for 4 s from local receipt of the step change, then the idle buttons. Repeated saved snapshots do not extend the flash. |
+| Offline | The panel shows centred grey “praatvol offline”. |
+| Idle or failed | Equal-width Room and Call buttons fill the panel. A failed run adds a red dot to Room. |
+| Starting | A spinner and “Starting” appear beside Stop. One Stop tap cancels setup. |
+| Recording | The first row shows a red pulse, elapsed time, and Room/Call pill. The second row shows microphone and signal dots. |
+| Preparing | A spinner and label appear above a 3 pt progress line. `preparingFraction` controls the line. |
+| Uploading | `uploadFraction` controls the line and percentage. |
+| Transcribing | The panel estimates progress from `stepStartedAt` and `estimatedSeconds`, with a `~` prefix and a 95% cap. |
+| Review | “Transcribe?” appears above duration and decimal megabytes (MB). Two 56 pt buttons offer Transcribe or Keep audio only. |
+| Needs attention | An orange triangle and “Needs attention on Mac” replace the normal readout. Command buttons remain disabled. |
+| Saved | A green check and “Saved” appear for the recent save interval, then idle controls return. |
 
-Buttons send `record-room`, `record-call`, `stop`, `transcribe` or `keep` on short-lived background connections. Review checkmark sends `{"cmd":"transcribe"}`; Skip sends `{"cmd":"keep"}` to save audio without transcription. Both are valid only in review. Commands are not retried or shown optimistically. Command errors show a short message for 2 s; `notReviewing` shows “Already answered”. Green signal dots mean audio is present, hollow grey dots mean silence, and orange means more than 10 s of silence.
+Tap Stop twice within 3 seconds during recording.
+The first tap shows “Stop?” and widens the button to fit the text.
+The second tap sends `stop`.
+Panel detachment or a state change cancels confirmation.
 
-Review and the new progress fields require praatvol to implement control protocol addendum v1.1 (`stepStartedAt`, `estimatedSeconds`, `preparingFraction`, `durationSeconds`, `uploadBytes`, `warnings`). Until then the old flow remains supported; no review controls appear unless praatvol pushes `review`.
+Preparing and uploading fractions cap at 0.99 while their steps remain active.
+Missing fractions or estimates leave the progress track empty and omit the percentage.
+The progress model refreshes locally each second.
+An available review warning replaces duration and size with an orange triangle and the first warning.
+The panel omits absent duration and size values.
 
-Focused checks: `python3 -I mtmr/tests/test-praatvol.py`. The normal test runner discovers this test automatically. Tests use only a temporary fake socket.
+The Saved interval uses `stepStartedAt` if present and lasts less than 4 seconds from that timestamp.
+The timestamp check permits up to 2 seconds of future clock skew.
+Without `stepStartedAt`, only a live transition to Saved starts the 4-second interval.
+A first Saved snapshot without a timestamp does not flash.
+Repeated snapshots do not extend the interval.
+
+Buttons send `record-room`, `record-call`, `stop`, `transcribe`, or `keep` through separate short-lived connections.
+The review checkmark sends `{"cmd":"transcribe"}`; the cross sends `{"cmd":"keep"}`.
+The review commands require the source's review state.
+The client uses 2-second deadlines for connection, write, and reply stages.
+Commands neither retry nor change the displayed source state optimistically.
+Command errors show for 2 seconds; `notReviewing` maps to “Already answered”.
+
+Green signal dots indicate audio.
+Hollow grey dots indicate silence.
+Orange dots indicate more than 10 seconds of silence.
+Room uses one microphone dot; Call adds a system-audio dot.
+
+Review and extended progress use these optional fields from protocol addendum v1.1:
+
+- `stepStartedAt` provides the step timestamp.
+- `estimatedSeconds` provides the duration estimate.
+- `preparingFraction` provides preparation progress.
+- `durationSeconds` provides the review duration.
+- `uploadBytes` provides the review size.
+- `warnings` provides review warnings.
+
+The panel also accepts older version 1 snapshots without these fields.
+Review controls appear only if the source sends `review`.
+Run `python3 -I mtmr/tests/test-praatvol.py` for focused checks with a temporary fake socket.
 
 ## Teams
 
-The everyday layout runs one `teams/teams-watch` process from the `appControls` item's `watcher` field. The supervisor already accepts watchers on any top-level item; no live-button placeholder is needed. Set `"teams": {"directory": "${REPO}/teams"}` on the item so the panel can run the existing tap scripts (absolute executable paths after `tbctl layout` substitution). Without that option the readout works, but taps are disabled.
+The actual layout declares one `teams/teams-watch` process on the `appControls` item's `watcher` field.
+Set `"teams":{"directory":"${REPO}/teams"}` so the panel can execute the tap scripts.
+`tbctl layout` substitutes the repository path.
+The directory must be absolute and contain executable `teams-mic-tap` and `teams-camera-tap` files.
+Without a directory, the readout works but the buttons remain disabled.
 
-The watcher opens `/json/version` once per connection to `127.0.0.1:9333`, then keeps the browser CDP websocket open with `Target.setDiscoverTargets`. It attaches to eligible Teams pages, including the main page so a call appearing within an existing page is detected. `Runtime.addBinding` carries MutationObserver snapshots of call UI and mic/camera labels, plus window focus/blur and visibility changes. Navigation reinstalls the observer. There is **no target-list polling or DOM polling**, including outside calls. Unreachable/disconnected CDP retries after 5, 10, then 30 seconds maximum. Failed MTMR state deliveries retry after 5 seconds without making CDP requests; join notifications are never retried.
+The watcher uses the Chrome DevTools Protocol (CDP) on `127.0.0.1:9333`.
+The watcher reads `/json/version` once per connection and keeps the browser WebSocket open.
+`Target.setDiscoverTargets` reports target creation, updates, and removal.
+The watcher attaches to eligible Teams pages, including the main page.
+`Runtime.addBinding` carries Document Object Model (DOM) snapshots from a MutationObserver.
+Focus, blur, and visibility events also request snapshots.
 
-One newline JSON message is sent per changed state through the normal MTMR socket:
+Navigation reinstalls the observer.
+The observer reads call controls, device labels, page title, and available duration text.
+The watcher performs no periodic target or DOM queries.
+With no pending command or delivery, the watcher blocks on the socket indefinitely.
+Connection failures retry after 5, 10, and then at most 30 seconds.
+A connection that lasts at least 30 seconds resets that backoff.
+
+Changed state uses this socket message:
 
 ```json
 {"cmd":"teams","online":true,"inCall":true,"title":"Weekly sync","mic":"on","camera":"off","focused":true,"joinedAt":1792400000,"durationText":"12:03"}
 ```
 
-`inCall` is required and boolean. `online` defaults to true; `focused` to false; title to empty; mic/camera to unknown. Optional `joinedAt` is epoch seconds; `durationText` is `mm:ss` or `h:mm:ss`, or null. Invalid field types reject the entire message with the usual error reply. Unknown fields are ignored and unknown device strings render grey. `{"cmd":"teams","online":false,"inCall":false}` marks the watcher offline. Offline is not a confirmed call end, so restoration waits for an online no-call report.
+| Field | Rule |
+|---|---|
+| `inCall` | The field is a required boolean. |
+| `online` | The optional boolean defaults to true. |
+| `focused` | The optional boolean defaults to false. |
+| `title` | The optional string defaults to empty. |
+| `mic` | The panel accepts `on`, `muted`, or `unknown`; other strings map to unknown. |
+| `camera` | The panel accepts `on`, `off`, or `unknown`; other strings map to unknown. |
+| `joinedAt` | The optional number supplies epoch seconds; null means absent. |
+| `durationText` | The optional string supplies `m:ss` or `h:mm:ss`; null means absent. |
 
-In-call text is 12 pt semibold over 10 pt grey elapsed time; the title truncates, never shrinks. The two 44 × 30 pt neutral buttons use baked green/red symbol tints and grey for unknown state. The local clock ticks once per second, synchronising to Teams' DOM duration when available and otherwise using first-seen `joinedAt`. Timer selectors (`call-duration`, `call-timer`, `call-duration-text`) and meeting-window focus events still need real-call verification; the join timestamp is a fallback, not historical time before the watcher started. A “Meeting joined” notification is sent when a call is first observed, including startup during a call.
+Wrong types reject the message; unknown fields do not affect state.
+Optional fields also accept null and use their defaults.
+`{"cmd":"teams","online":false,"inCall":false}` marks the watcher offline.
+Offline does not confirm call end, so restoration waits for an online no-call report.
+The socket registers `teams` when an App Controls item includes the Teams panel.
+`tbctl` has no `teams` subcommand.
 
-Tap scripts run asynchronously, with optimistic icons until watcher confirmation (at most 5 seconds), a 6-second process timeout, and no toggle retries. Errors are logged and revert the optimistic icon. A manual switcher or `tbctl app` selection cancels restoration and suppresses automatic re-selection for the remainder of that call. No selection happens outside a call, and blur keeps Teams selected.
+The panel displays a 12 pt semibold meeting name above an 11 pt red elapsed timer.
+Both lines align left; the title truncates with an ellipsis.
+Generic or empty titles display “Meeting”.
+Two bordered 76 × 30 pt buttons occupy the right side, with 8 pt gaps.
+Green indicates microphone/camera on; red indicates muted/off; grey indicates unknown.
+Outside a call, the panel displays “No meeting” or “Teams offline”.
 
-Focused checks: `python3 -I mtmr/tests/test-live-buttons.py` and `python3 -I mtmr/tests/test-teams.py`. Read-only idle trace: 20 seconds against the live debug port with no meeting produced one no-call snapshot; CPU stayed 0.0% and process CPU time stayed 0:00.28 from second 3 to second 20. All traced CDP requests were discovery, attachment and observer setup within the first 0.048 seconds; no requests followed during the remaining idle run. Call transitions (including pre-join/leave detection), focus, controls and appearance remain hardware checks; development never clicked Teams.
+The local timer updates each second.
+A changed valid DOM duration synchronises the timer; otherwise `joinedAt` supplies the origin.
+Without either value, the clock starts at local receipt.
+The watcher records `joinedAt` when the watcher first observes that target's call.
+Current target titles contain the plain meeting name.
+The parser also strips the older ` | Microsoft Teams` suffix and limits names to 80 characters.
 
-Rollback: restore the source/layout from the pre-change backup, rebuild, then explicitly install the old layout and restart MTMR yourself. The installed `items.json` is not changed by builds or tests.
+A hangup control or a recognised microphone/camera control marks a call.
+A focused call takes priority if multiple call pages exist.
+Meeting-window focus selects Teams once per call.
+Any manual switcher or `tbctl app` selection cancels restoration and further automatic selection for that call.
+Focus loss leaves Teams selected.
+
+Tap scripts only toggle the requested device once.
+The panel runs scripts asynchronously with a 6-second process timeout and no toggle retry.
+Known device states change optimistically for at most 5 seconds until a watcher snapshot arrives.
+Command failure logs an error and clears the optimistic state if no newer snapshot exists.
+Failed state deliveries retry after 5 seconds without extra CDP queries.
+“Meeting joined” notifications never retry.
+
+Run focused fixture checks without live Teams access:
+
+```bash
+python3 -I mtmr/tests/test-live-buttons.py
+python3 -I mtmr/tests/test-teams.py
+```
+
+Source comments retain hardware checks for duration selectors, focus events, pre-join detection, and multiple call pages.
+The setup and one-shot commands appear in [runbook-teams-debug.md](runbook-teams-debug.md).
+To roll back, restore the earlier sources and layout.
+Rebuild the app.
+Install the restored layout explicitly.
+Builds and tests leave the installed `items.json` unchanged.
 
 ## Fan
 
-The fan panel needs the ThermalForge daemon (`/usr/local/bin/thermalforge`, LaunchDaemon `com.thermalforge.daemon`). The daemon runs as root and writes the fan speed to the SMC. MTMR talks to it on `/var/run/thermalforge.sock` (4-byte length + JSON, only the installing user may connect). The curves are in `FanController`, not in ThermalForge.
+The panel requires the ThermalForge root daemon and connects to `/var/run/thermalforge.sock` without elevated privileges.
+ThermalForge writes the System Management Controller (SMC); `FanController` owns the curves.
+The daemon protocol uses a 4-byte big-endian length followed by JSON, with one request per connection.
+Requests include `v: 1` and `oneshot: false`.
+The socket permits only the user who installed the daemon.
 
 | Mode | Behaviour |
 |---|---|
-| Apple | Apple's own fan control. MTMR sends `auto` once and then does nothing. |
-| Quiet | Off below 70 °C, then up to 50 % at 90 °C (ease-in). Trades heat for noise. |
-| Cool (default) | Off below 45 °C, then up to 100 % at 75 °C (ease-in). |
-| Max | Full speed. |
-| Custom | A fixed speed set with the slider. At 85 °C the mode switches to Cool and a notification appears. |
+| Apple | MTMR sends `auto` on transition and then makes no control writes. Status reads continue. |
+| Quiet | The curve starts at 70 °C and reaches 50% at 90 °C, with squared ease-in. |
+| Cool | The default curve starts at 45 °C and reaches 100% at 75 °C, with squared ease-in. |
+| Max | The controller requests full speed. |
+| Custom | The controller requests a fixed fraction of the fan range. At 85 °C, the mode switches to Cool. |
 
-- The temperature is the hottest CPU or GPU sensor (`TC*`, `Tp*`, `TG*`, `Tg*`), the value that the daemon's safety floor uses, smoothed over a few samples.
-- Below the start temperature the fan goes back to Apple (`auto`). A running fan stops only 5 °C below the start temperature.
-- The controller runs every 2 s while the zone is loaded, also when another panel shows. It writes a speed only when the speed changes by 100 rpm or more, and it slows down by at most 300 rpm per step. Otherwise it sends a heartbeat.
-- Safety: the daemon sets the fans to full speed at 95 °C in every mode. If MTMR stops, the daemon gives the fans back to Apple after 15 s. `thermalforge auto` does the same at once.
-- The mode and the Custom speed persist (UserDefaults `FanMode`, `FanCustomPercent`).
+The mode button opens a row with all five modes and closes after selection or 6 seconds.
+Custom uses a slider; release commits the selected value.
+The mode persists under `FanMode`; the custom fraction persists under `FanCustomPercent`.
+The initial custom fraction is 0.4.
+
+The graph retains 60 samples at 2-second intervals, with the newest sample on the right.
+The graph shows temperature, actual speed as a blue area, and requested speed as a dashed blue line.
+Dashed thresholds mark curve start, full speed, and the red 95 °C safety floor.
+Temperature spans 30–100 °C; speed spans 0–100% of the fan range on the same height.
+The readout shows temperature above revolutions per minute (rpm), or “off” at zero speed.
+
+The controller uses the hottest `TC*`, `Tp*`, `TG*`, or `Tg*` sensor, smoothed with coefficient 0.35.
+The fan returns to Apple below the curve start, with 5 °C hysteresis after the curve starts.
+The controller runs every 2 seconds even if another panel appears.
+Speed writes require at least 100 rpm change; decreases cap at 300 rpm per tick.
+Otherwise the controller sends a heartbeat while a hold remains active.
+The controller repeats a request if the daemon reports that the hold ended.
+
+Keep the daemon safety controls active.
+The daemon requests full speed at 95 °C and returns control to Apple after 15 seconds without a heartbeat.
+`thermalforge auto` also returns control immediately.
+A missing temperature makes MTMR request Apple control.
+Custom's 85 °C transition also posts a notification.
 
 ```bash
-bin/tbctl fan                 # mode, temperature, rpm
-bin/tbctl fan quiet           # set the mode
+bin/tbctl fan
+bin/tbctl fan quiet
 bin/tbctl fan custom --percent 30
 ```
 
+`{"cmd":"fan"}` reports state.
+Optional `mode` selects `apple`, `quiet`, `cool`, `max`, or `custom`.
+Optional numeric `percent` sets the saved custom value from 0 through 100; `percent` alone does not select Custom.
+The reply contains `fan.mode`, `fan.customPercent`, and available `temperature`, `rpm`, or `error` fields.
+The socket registers `fan` after a layout includes the Fan panel.
+
 ## lob sessions
 
-- The panel finds lob sessions from the running Claude processes. lob starts each one as `claude … Active project: <name>. …`. The pill shows the tmux session name without `-01` (`-02` shows as `<name> 2`).
-- An older tmux server can lose its socket when a newer server starts. tmux commands then cannot reach its sessions. The panel still lists those sessions, because it starts from the process list.
-- **Working:** Claude shows a spinner line above the prompt, for example "✢ Tinkering… (thought for 2s)". The monitor looks for a glyph, a capitalised word, and "…" in the 12 lines above the "❯" prompt. If tmux cannot reach the session, the monitor uses CPU instead: an average of 8 % or more over 6 s means working. Idle Claude has short CPU spikes, so a CPU working spell under 15 s goes back to idle, not to finished.
-- **Delegate:** a process that runs `pi-delegate.py --tier` is somewhere below the session's Claude process. Delegate takes priority over working.
-- **Finished:** the session was working and stopped. The chip stays green until Claude works again, or for 30 minutes.
-- **Idle:** all other sessions.
-- The monitor reads tmux every 1.5 s. It starts when the zone loads, so it sees a finish while another panel shows.
-- lob needs no change. A tap on a chip does nothing.
+The panel recognises Claude processes whose initial prompt contains `Active project: <name>.`.
+The panel uses tmux session names where available and the project name otherwise.
+The display omits suffix `-01` and renders `-02` as ` 2`.
+The monitor can list a process even if tmux cannot reach that process's server.
+
+- **Working:** A spinner line appears within 12 non-empty lines above the `❯` prompt.
+  The pattern matches a glyph, a capitalised word, and an ellipsis.
+  For unreachable tmux sessions, average CPU use of at least 8% over about 6 seconds indicates work.
+  A CPU-only work interval shorter than 15 seconds returns to Idle rather than Finished.
+- **Delegate:** A descendant process contains `pi-delegate.py --tier` in its command.
+  The purple arc takes priority over Working.
+- **Finished:** Work or delegation ends.
+  The green pulse persists until work resumes or 30 minutes pass.
+- **Idle:** The session has no other state and displays a grey dot.
+
+The monitor samples every 1.5 seconds from zone load, including while another panel appears.
+Working uses a blue arc; Delegate uses a slower, shorter purple arc.
+Finished uses a green pulse; Reduce Motion disables the animations.
+
+One session uses full height in the left column.
+Two sessions stack in the left column.
+Three sessions leave the top-left cell empty in a two-row grid.
+Four sessions fill that grid; five or more add columns and horizontal scroll.
+Pill widths have an 88 pt minimum.
+Compact pills show the project name; a single pill also shows elapsed state time.
 
 ## Layout entry
 
@@ -153,65 +352,73 @@ bin/tbctl fan custom --percent 30
 }
 ```
 
-- `switcher` is optional: `"right"` (the actual layout) or `"left"` (the default).
-- `panels` is optional. The list sets the order in the switcher. An unknown ID makes MTMR reject the layout.
-- `width` sets the width of the zone. The solver never shrinks right-hand items. Our bar is 1004 pt wide (measured). Keep the width at or below `(1004 − notification minWidth − 2 × 16) / 2`. With `maxChars: 36`, the limit is 307. At 340, the notification area is 292 pt, below its minimum, and MTMR logs a layout warning.
+`switcher` accepts `left` or `right`; the default is `left`.
+`panels` defaults to the registry order and must contain at least one known identifier.
+The registry order is System, Teams, YouTube Music, VS Code, Stats, lob, Fan, and praatvol.
+Unknown identifiers reject the layout.
+
+`width` sets the complete zone width, including the switcher.
+The solver never shrinks right items.
+At the measured host width of 1004 pt, a 340 pt zone leaves 292 pt for notifications.
+The actual notification minimum is 358 pt, so MTMR logs a warning.
+A zone at most 307 pt preserves that minimum with 16 pt outer padding.
 
 ## Socket commands
 
 ```bash
-bin/tbctl app            # list the panels and show the selected one
-bin/tbctl app stats      # select a panel
+bin/tbctl app
+bin/tbctl app stats
 ```
 
-Protocol: `{"cmd":"app","id":"stats"}` and `{"cmd":"apps"}`. MTMR registers these commands when the loaded layout has an `appControls` item.
+Without an identifier, `tbctl app` sends `{"cmd":"apps"}` and lists all registered panels with selection state.
+With an identifier, the client sends `{"cmd":"app","id":"stats"}`.
+An unknown identifier rejects the selection.
+MTMR registers both commands after an App Controls item loads.
 
 ## Add a panel
 
-A panel is one Swift file in `mtmr/overlay/`. The file holds a `final class` that inherits `NSView` and conforms to `AppControlsPanel`:
+Create one Swift file in `mtmr/overlay/`.
+The panel must inherit `NSView` and conform to `AppControlsPanel`.
+The protocol requires these members:
 
-```swift
-final class AppControlsExamplePanel: NSView, AppControlsPanel {
-    static let id = "example"            // [a-z0-9-], unique
-    static let name = "Example"          // tooltip and `tbctl app` list
-    static func icon() -> NSImage { return appControlsTextBadge("EX") }
-    let refreshInterval: TimeInterval = 2
-
-    override init(frame frameRect: NSRect) { super.init(frame: frameRect) /* add subviews */ }
-    required init?(coder: NSCoder) { return nil }
-    override func layout() { super.layout() /* frames inside bounds (height 30) */ }
-    func refresh() { /* read data, update subviews */ }
-}
-```
-
-Follow these steps:
+- `static id: String` identifies the panel uniquely.
+- `static name: String` supplies the display name.
+- `static icon() -> NSImage` supplies the icon.
+- `init(frame: NSRect)` creates the panel.
+- `refreshInterval: TimeInterval` requests a refresh interval.
+- `refresh()` updates the panel.
 
 1. Add the class to `AppControlsRegistry.panels` in `AppControlsItem.swift`.
-2. Add the ID to `panels` in `layouts/actual.json`.
-3. Run `mtmr/build.sh` and restart MTMR.
+2. Add the identifier to the layout's `panels` list.
+3. Run `mtmr/build.sh`.
+4. Follow the build runbook to restart MTMR and grant Accessibility access.
+5. Install the changed layout with `bin/tbctl layout actual`.
 
-Follow these rules for a panel:
+Use `AppControlsStyle` for labels, buttons, colours, and row geometry.
+Use `AppControlsApps` for app icons and app launches.
+Use `AppControlsMeterView` for progress meters.
+Keep `refresh()` fast because the zone calls `refresh()` on the main thread.
+Use asynchronous work for slow sources.
 
-- Use the helpers in `AppControlsKit.swift`: `AppControlsStyle` for labels, buttons, and colours, `AppControlsApps` for app icons and app launches, and `AppControlsMeterView` for meters.
-- Keep `refresh()` fast. `refresh()` runs on the main thread. Use an asynchronous call for slow data, as `NowPlaying` does.
-- Let the zone drive periodic `refresh()` calls only while the panel is on the bar. Short action timers, such as Stop confirmation, must be cancelled when the panel leaves the bar.
+Cancel action timers after panel detachment.
+The zone runs periodic refreshes only while attached and enforces a minimum interval of 0.25 seconds.
 
 ## Files
 
 | File | Contents |
 |---|---|
-| `mtmr/overlay/AppControlsItem.swift` | Panel protocol, registry, selection, zone view, switcher |
-| `mtmr/overlay/AppControlsKit.swift` | Shared style, app helpers, key presses, meter view, text badge |
-| `mtmr/overlay/TouchBarIcon.swift` | One icon size for the whole bar; colour drawn into the icon |
-| `mtmr/overlay/AppControlsSystemPanel.swift` | System panel |
-| `mtmr/overlay/AppControlsTeamsPanel.swift` | Teams panel, pushed state and asynchronous tap actions |
-| `mtmr/overlay/TeamsState.swift` | Teams decode, elapsed clock and automatic selection policy |
-| `mtmr/overlay/AppControlsMusicPanel.swift` | `NowPlaying` (MediaRemote) and the YouTube Music panel |
-| `mtmr/overlay/AppControlsCodePanel.swift` | VS Code panel |
-| `mtmr/overlay/AppControlsPraatvolPanel.swift` | praatvol panel, recording readout and Stop confirmation |
-| `mtmr/overlay/PraatvolClient.swift` | praatvol socket client, options, snapshots, line framing and display model |
-| `mtmr/overlay/AppControlsStatsPanel.swift` | Stats panel, `SystemMetrics`, temperature sensors |
-| `mtmr/overlay/AppControlsLobPanel.swift` | lob panel, `LobMonitor`, session chips, lob icon |
-| `mtmr/overlay/AppControlsFanPanel.swift` | Fan panel, `FanController` (curves), `ThermalForgeClient` (daemon socket) |
-| `mtmr/overlay/NotificationMirror.swift` | Mirror of macOS notifications into the notification area |
-| `mtmr/patches/0005-app-controls-watchers-welcome.patch` | `appControls` item type, watchers, welcome notification |
+| `mtmr/overlay/AppControlsItem.swift` | The file defines the protocol, registry, options, selection, zone, and switcher. |
+| `mtmr/overlay/AppControlsKit.swift` | The file provides shared styles, app helpers, key events, and meters. |
+| `mtmr/overlay/TouchBarIcon.swift` | The file provides shared icon sizes and image tints. |
+| `mtmr/overlay/AppControlsSystemPanel.swift` | The file implements System. |
+| `mtmr/overlay/AppControlsTeamsPanel.swift` | The file implements Teams and asynchronous tap actions. |
+| `mtmr/overlay/TeamsState.swift` | The file defines Teams snapshots, geometry, clock, and automatic selection. |
+| `mtmr/overlay/AppControlsMusicPanel.swift` | The file implements Now Playing and YouTube Music. |
+| `mtmr/overlay/AppControlsCodePanel.swift` | The file implements VS Code. |
+| `mtmr/overlay/AppControlsPraatvolPanel.swift` | The file implements praatvol controls and readouts. |
+| `mtmr/overlay/PraatvolClient.swift` | The file defines the praatvol client, snapshots, and display model. |
+| `mtmr/overlay/AppControlsStatsPanel.swift` | The file implements Stats and system metrics. |
+| `mtmr/overlay/AppControlsLobPanel.swift` | The file implements session discovery and pills. |
+| `mtmr/overlay/AppControlsFanPanel.swift` | The file implements Fan, curves, and the daemon client. |
+| `mtmr/overlay/NotificationMirror.swift` | The file copies macOS notifications into the queue. |
+| `mtmr/patches/0005-app-controls-watchers-welcome.patch` | The patch adds the item type, watcher supervision, mirror setup, and welcome hook. |
