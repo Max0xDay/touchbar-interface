@@ -370,7 +370,8 @@ def meeting_title(target):
     title = str(target.get("title", "")).strip()
     if title.endswith(TEAMS_TITLE_SUFFIX):
         title = title[:-len(TEAMS_TITLE_SUFFIX)].strip()
-    return title[:MAXIMUM_LABEL_LENGTH] if title and title != "Microsoft Teams" else ""
+    genericTitles = {"", "microsoft teams", "chat", "calendar", "activity", "teams"}
+    return "" if title.casefold() in genericTitles else title[:MAXIMUM_LABEL_LENGTH]
 
 
 def run_meeting(port, deadline):

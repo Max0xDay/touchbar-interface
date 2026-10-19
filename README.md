@@ -11,9 +11,10 @@ Targets Apple Silicon MacBook Pros with a Touch Bar. Developed and tested on mac
 ```
 
 - **Universal control:** a 30 × 30 button opens a separate page with Apple's system brightness and volume sliders; tap it again to return, or hold the main-bar button for 0.5 seconds to return to Apple's Touch Bar. See [layouts.md](docs/layouts.md#universal-control-button).
-- **Left buttons:** live buttons that scripts control through the socket. The first two are the Teams mic and camera buttons: green when live, red when muted or off, hidden outside a call. A tap toggles.
+- **Left space:** available for socket-driven live buttons; Teams controls now live in the right-side Teams panel.
 - **Notification area:** shows `tbctl notify` messages and a copy of every macOS notification, with the icon of the sender app.
-- **App Controls:** one panel at a time, selected with the switcher at the right edge. The panels are System, lob, YouTube Music, VS Code, Stats and Fan.
+- **App Controls:** one panel at a time, selected with the switcher at the right edge. The everyday panels are System, Teams, lob, YouTube Music, praatvol, Stats and Fan (VS Code remains available).
+- **Teams:** meeting title and elapsed time, with green/red mic and camera controls. One event-driven watcher auto-selects the panel when the meeting window is focused; call end restores the previous panel unless manually changed. Blur stays on Teams. See [app-controls.md](docs/app-controls.md#teams) for verification limits.
 - **Fan control:** the Fan panel runs our own fan curves (Apple, Quiet, Cool, Max, Custom) through the [ThermalForge](https://github.com/ProducerGuy/ThermalForge) root daemon.
 
 ## Status
@@ -23,8 +24,8 @@ Targets Apple Silicon MacBook Pros with a Touch Bar. Developed and tested on mac
 | Native arm64 build (no Xcode, no Rosetta) | Working. |
 | Socket and `tbctl` (notify, clear, button, buttons, app, apps, fan, layout) | Working. |
 | Notification area (queue, swipe, two-line entries, app icons, macOS notification mirror) | Working. |
-| Live buttons and watchers (Teams mic, Teams camera) | Working. |
-| App Controls (System, lob, YouTube Music, VS Code, Stats) | Working. |
+| Live buttons and supervised watchers | Working; Teams uses one App Controls watcher instead of two button pollers. |
+| App Controls (System, Teams, lob, YouTube Music, praatvol, VS Code, Stats) | Teams implemented and focused-tested; real-call/hardware verification pending. |
 | Fan panel and fan control (ThermalForge daemon) | Working; curves to be tuned. |
 
 ## Repository layout
@@ -39,7 +40,7 @@ mtmr/
 layouts/
   template.json    reference layout for spacing and look
   actual.json      the everyday layout
-teams/             Teams mute and camera control through the debug port, the watchers and the tap actions
+teams/             Teams debug-port controls, event-driven panel watcher and tap actions
 docs/              guides and findings (see below)
 build/             build output (git-ignored)
 ```

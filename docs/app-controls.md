@@ -2,7 +2,7 @@
 
 App Controls is the zone on the right end of the bar. The zone shows one **panel** at a time. A panel is a small control surface for one app or topic, for example YouTube Music or Stats.
 
-The user picks the panel. The panel does not follow the frontmost app. The choice stays the same after a restart or a layout reload.
+The user picks the panel, and the choice stays the same after a restart or a layout reload. Teams is the one focus-driven exception: focusing a meeting window selects Teams; ending the call restores the previous panel unless the user has manually selected a panel during the call. Blur never switches away.
 
 ```
 [✕][gap][ left buttons ] |  [ notification area ]  | [ panel ............................ ][SW]
@@ -14,6 +14,7 @@ The user picks the panel. The panel does not follow the frontmost app. The choic
 | Panel | ID | Icon | Contents | Tap |
 |---|---|---|---|---|
 | System | `system` | Clock tile (graphite tile, white clock at 10:10) | Three columns: time with seconds, weekday over date, and a bullet list with the ISO week and battery level. | Nothing |
+| Teams | `teams` | Teams app icon, or graphite people tile | Meeting title over elapsed time, with mic and camera buttons; grey “No meeting” or “Teams offline” otherwise. | Mic/camera: toggle without focusing Teams. Meeting-window focus selects this panel automatically. |
 | YouTube Music | `ytmusic` | Pear app icon | Cover, title, artist, a thin progress line, and the previous / play-pause / next buttons. | Cover or title: brings Pear to the front, or opens Pear if it does not run. |
 | VS Code | `vscode` | VS Code icon | A window toggle, a Run button (▶), and a command button (⌘). The window toggle shows the current window in the colour of that window: a colour stripe, the project name, the open file, and one coloured dot for each window. The current window has the large dot with a white ring. | Window toggle: goes to the next window. If VS Code is not in front, the first tap brings the current window to the front. Run: presses F5 (Run > Start Debugging). Command button: opens the Command Palette (⇧⌘P). |
 | praatvol | `praatvol` | Waveform tile (graphite tile, white waveform; switcher only) | Full-width Room/Call buttons when idle. Recording: red pulsing dot, elapsed time, Room/Call pill, microphone and signal dots. Processing: spinner and progress line. Review: “Transcribe?” with duration/size or a warning. Offline: centred grey text. Saved: green check for 4 s. | Room/Call: start recording. Stop: tap twice within 3 s while recording, once during setup. Review checkmark: Transcribe; cross: Skip (keep audio only). |
@@ -80,6 +81,28 @@ Review and the new progress fields require praatvol to implement control protoco
 
 Focused checks: `python3 -I mtmr/tests/test-praatvol.py`. The normal test runner discovers this test automatically. Tests use only a temporary fake socket.
 
+## Teams
+
+The everyday layout runs one `teams/teams-watch` process from the `appControls` item's `watcher` field. The supervisor already accepts watchers on any top-level item; no live-button placeholder is needed. Set `"teams": {"directory": "${REPO}/teams"}` on the item so the panel can run the existing tap scripts (absolute executable paths after `tbctl layout` substitution). Without that option the readout works, but taps are disabled.
+
+The watcher opens `/json/version` once per connection to `127.0.0.1:9333`, then keeps the browser CDP websocket open with `Target.setDiscoverTargets`. It attaches to eligible Teams pages, including the main page so a call appearing within an existing page is detected. `Runtime.addBinding` carries MutationObserver snapshots of call UI and mic/camera labels, plus window focus/blur and visibility changes. Navigation reinstalls the observer. There is **no target-list polling or DOM polling**, including outside calls. Unreachable/disconnected CDP retries after 5, 10, then 30 seconds maximum. Failed MTMR state deliveries retry after 5 seconds without making CDP requests; join notifications are never retried.
+
+One newline JSON message is sent per changed state through the normal MTMR socket:
+
+```json
+{"cmd":"teams","online":true,"inCall":true,"title":"Weekly sync","mic":"on","camera":"off","focused":true,"joinedAt":1792400000,"durationText":"12:03"}
+```
+
+`inCall` is required and boolean. `online` defaults to true; `focused` to false; title to empty; mic/camera to unknown. Optional `joinedAt` is epoch seconds; `durationText` is `mm:ss` or `h:mm:ss`, or null. Invalid field types reject the entire message with the usual error reply. Unknown fields are ignored and unknown device strings render grey. `{"cmd":"teams","online":false,"inCall":false}` marks the watcher offline. Offline is not a confirmed call end, so restoration waits for an online no-call report.
+
+In-call text is 12 pt semibold over 10 pt grey elapsed time; the title truncates, never shrinks. The two 44 × 30 pt neutral buttons use baked green/red symbol tints and grey for unknown state. The local clock ticks once per second, synchronising to Teams' DOM duration when available and otherwise using first-seen `joinedAt`. Timer selectors (`call-duration`, `call-timer`, `call-duration-text`) and meeting-window focus events still need real-call verification; the join timestamp is a fallback, not historical time before the watcher started. A “Meeting joined” notification is sent when a call is first observed, including startup during a call.
+
+Tap scripts run asynchronously, with optimistic icons until watcher confirmation (at most 5 seconds), a 6-second process timeout, and no toggle retries. Errors are logged and revert the optimistic icon. A manual switcher or `tbctl app` selection cancels restoration and suppresses automatic re-selection for the remainder of that call. No selection happens outside a call, and blur keeps Teams selected.
+
+Focused checks: `python3 -I mtmr/tests/test-live-buttons.py` and `python3 -I mtmr/tests/test-teams.py`. Read-only idle trace: 20 seconds against the live debug port with no meeting produced one no-call snapshot; CPU stayed 0.0% and process CPU time stayed 0:00.28 from second 3 to second 20. All traced CDP requests were discovery, attachment and observer setup within the first 0.048 seconds; no requests followed during the remaining idle run. Call transitions (including pre-join/leave detection), focus, controls and appearance remain hardware checks; development never clicked Teams.
+
+Rollback: restore the source/layout from the pre-change backup, rebuild, then explicitly install the old layout and restart MTMR yourself. The installed `items.json` is not changed by builds or tests.
+
 ## Fan
 
 The fan panel needs the ThermalForge daemon (`/usr/local/bin/thermalforge`, LaunchDaemon `com.thermalforge.daemon`). The daemon runs as root and writes the fan speed to the SMC. MTMR talks to it on `/var/run/thermalforge.sock` (4-byte length + JSON, only the installing user may connect). The curves are in `FanController`, not in ThermalForge.
@@ -123,7 +146,9 @@ bin/tbctl fan custom --percent 30
   "align": "right",
   "width": 340,
   "switcher": "right",
-  "panels": ["system", "lob", "ytmusic", "praatvol", "stats", "fan"],
+  "panels": ["system", "teams", "lob", "ytmusic", "praatvol", "stats", "fan"],
+  "watcher": ["${REPO}/teams/teams-watch"],
+  "teams": {"directory": "${REPO}/teams"},
   "praatvol": {"app": "dev"}
 }
 ```
@@ -179,6 +204,8 @@ Follow these rules for a panel:
 | `mtmr/overlay/AppControlsKit.swift` | Shared style, app helpers, key presses, meter view, text badge |
 | `mtmr/overlay/TouchBarIcon.swift` | One icon size for the whole bar; colour drawn into the icon |
 | `mtmr/overlay/AppControlsSystemPanel.swift` | System panel |
+| `mtmr/overlay/AppControlsTeamsPanel.swift` | Teams panel, pushed state and asynchronous tap actions |
+| `mtmr/overlay/TeamsState.swift` | Teams decode, elapsed clock and automatic selection policy |
 | `mtmr/overlay/AppControlsMusicPanel.swift` | `NowPlaying` (MediaRemote) and the YouTube Music panel |
 | `mtmr/overlay/AppControlsCodePanel.swift` | VS Code panel |
 | `mtmr/overlay/AppControlsPraatvolPanel.swift` | praatvol panel, recording readout and Stop confirmation |
