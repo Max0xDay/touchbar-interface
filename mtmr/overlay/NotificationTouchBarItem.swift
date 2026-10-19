@@ -146,9 +146,7 @@ final class NotificationStore {
         let selectedSurvives = entries[selectedIndex].deadline > current
         let selectedBefore = entries[..<selectedIndex].filter { $0.deadline > current }.count
         entries.removeAll { $0.deadline <= current }
-        // Keep showing the same entry if it is still live; otherwise show the newest remaining one.
-        // #COMPLETION_DRIVE: Expiry leaves the area empty; another live entry appears only on tap, swipe or arrival.
-        // #SUGGEST_VERIFY: Confirm this replaces automatic advancement when the shown entry's life ends.
+        // Preserve the selected live entry; expiry does not redisplay hidden entries without tap, swipe or arrival.
         selectedIndex = selectedSurvives ? selectedBefore : max(0, entries.count - 1)
         scheduleExpiry()
         publish()

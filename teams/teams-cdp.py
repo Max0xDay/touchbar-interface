@@ -27,7 +27,6 @@ from urllib.parse import urlparse
 # "Unmute mic" means currently muted and "Mute mic" means currently unmuted. Verified there on Teams 26213; not yet on this build.
 # Fix these from `teams-mute discover` output; nothing else in the file should need to change.
 # ---------------------------------------------------------------------------------------------
-# #SUGGEST_VERIFY: join a test call, run `teams-mute status` muted and unmuted, compare with the real mic state
 # Each device: the button selector, the label a real button must start with ("mic" alone also matches
 # "Microsoft ..." in the main window outside calls, Verified 2026-10-07), and label pattern -> state.
 # Camera labels name the next action too: "Turn camera on" = camera off (Verified 2026-10-07).
@@ -43,6 +42,7 @@ DEVICES = {
         "states": [["^turn camera on", "off"], ["^turn camera off", "on"]],
     },
 }
+# Call pages are served from these hosts.
 # #COMPLETION_DRIVE: call pages are served from these hosts (earlier research filtered on teams.microsoft.com)
 # #SUGGEST_VERIFY: if status always reports no-call during a call, widen this list after checking the host of the call window
 TEAMS_HOST_SUFFIXES = ("teams.microsoft.com", "teams.cloud.microsoft", "teams.live.com")

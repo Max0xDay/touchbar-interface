@@ -1,9 +1,9 @@
 [
   {
-    "type": "exitTouchbar",
-    "title": "✕",
+    "type": "volume",
     "align": "left",
-    "width": 30
+    "width": 30,
+    "id": "volume"
   },
   {
     "type": "staticButton",
@@ -11,12 +11,6 @@
     "align": "left",
     "bordered": false,
     "width": 1
-  },
-  {
-    "type": "volume",
-    "align": "left",
-    "width": 75,
-    "id": "volume"
   },
   {
     "type": "staticButton",

@@ -7,9 +7,10 @@ Targets Apple Silicon MacBook Pros with a Touch Bar. Developed and tested on mac
 ## The bar
 
 ```
-[✕][gap][ left buttons ] |  [ notification area, centred ]  | [ App Controls panel ......... ][switcher]
+[controls][gap][ left buttons ] |  [ notification area, centred ]  | [ App Controls panel ......... ][switcher]
 ```
 
+- **Universal control:** a 30 × 30 button opens a separate page with Apple's system brightness and volume sliders; tap it again to return, or hold the main-bar button for 0.5 seconds to return to Apple's Touch Bar. See [layouts.md](docs/layouts.md#universal-control-button).
 - **Left buttons:** live buttons that scripts control through the socket. The first two are the Teams mic and camera buttons: green when live, red when muted or off, hidden outside a call. A tap toggles.
 - **Notification area:** shows `tbctl notify` messages and a copy of every macOS notification, with the icon of the sender app.
 - **App Controls:** one panel at a time, selected with the switcher at the right edge. The panels are System, lob, YouTube Music, VS Code, Stats and Fan.

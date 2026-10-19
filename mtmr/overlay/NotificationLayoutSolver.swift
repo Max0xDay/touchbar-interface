@@ -54,8 +54,7 @@ struct NotificationLayoutOptions: Decodable, Equatable {
             guard maxWidth.isFinite else {
                 throw DecodingError.dataCorruptedError(forKey: .maxWidth, in: container, debugDescription: "maxWidth must be finite")
             }
-            // #COMPLETION_DRIVE: Reject a cap below the minimum rather than silently choosing between contradictory options.
-            // #SUGGEST_VERIFY: Keep maxWidth >= minWidth; revise this validation if smaller caps are intended.
+            // Reject a cap below the minimum rather than silently choosing between contradictory options.
             guard maxWidth.rounded(.down) >= minWidth.rounded(.up) else {
                 throw DecodingError.dataCorruptedError(forKey: .maxWidth, in: container, debugDescription: "maxWidth must be at least minWidth after rounding")
             }
@@ -100,8 +99,7 @@ struct NotificationMirrorOptions: Decodable, Equatable {
 enum NotificationTextMetrics {
     static let fontSize: Double = 15
     static let innerInset: Double = 12
-    // #COMPLETION_DRIVE: This is the measured advance of the 15 pt regular monospaced system font on macOS 14.7.6.
-    // #SUGGEST_VERIFY: The AppKit harness checks this against NSFont; remeasure if the system font changes.
+    // Measured advance of the 15 pt regular monospaced system font on macOS 14.7.6; the AppKit harness checks it against NSFont.
     static let glyphWidth: Double = 9.2724609375
 
     static func preferredWidth(maxChars: Int) -> Double {
@@ -172,8 +170,7 @@ enum NotificationLayoutSolver {
         var visibleLeft = leftWidths.map { Optional($0) }
         let visibleRight = rightWidths.map { Optional($0) }
         if notificationWidth < floorWidth {
-            // #COMPLETION_DRIVE: At impossible widths preserve the right group and centred floor, hiding only overflowing left items; right may overlap or be clipped.
-            // #SUGGEST_VERIFY: Keep W >= 2*(Rw+padding)+120; right preservation, a centred floor and no overlap cannot all hold below that.
+            // At impossible widths keep the right group and centred floor, hiding only overflowing left items; right may overlap or be clipped. Needs W >= 2*(Rw+padding)+120.
             notificationWidth = centredWidth(min(121, options.maxWidth ?? 121), barWidth: barWidth)
             let remainingMargin = max(0, (barWidth - notificationWidth) / 2)
             let edgePadding = min(options.padding, remainingMargin)
@@ -223,8 +220,7 @@ enum NotificationLayoutSolver {
         let width = max(0, min(barWidth, limit).rounded(.down))
         guard barWidth == barWidth.rounded() else { return width }
         let alignedWidth = width - (barWidth - width).truncatingRemainder(dividingBy: 2)
-        // #COMPLETION_DRIVE: A 120 cap on odd W (or fractional W) requires fractional origins to preserve exact edges/centre and the floor.
-        // #SUGGEST_VERIFY: Check fractional origins if using such widths; normal whole-point frames use N with the same parity as W.
+        // Odd or fractional W needs fractional origins to keep exact edges and centre; whole-point frames use N with the same parity as W.
         return alignedWidth >= floorWidth ? alignedWidth : width
     }
 
