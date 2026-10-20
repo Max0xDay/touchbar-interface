@@ -27,6 +27,8 @@ final class NotificationSocketServer {
         let count: Int?
         let color: String?
         let style: String?
+        let trickle: Bool?
+        let preset: String?
     }
 
     /// Extra commands registered by features (e.g. App Controls). Runs on the main queue with the whole
@@ -282,9 +284,18 @@ final class NotificationSocketServer {
     }
 
     private func playParticles(_ command: Command) -> Reply {
-        let count = command.count ?? 30
+        if let preset = command.preset {
+            guard preset == "usb" else { return rejected("preset must be usb") }
+            NotificationCenter.default.post(name: Notification.Name("MTMRParticles"), object: nil, userInfo: ["preset": preset])
+            return ["ok": true]
+        }
+        if let trickle = command.trickle {
+            NotificationCenter.default.post(name: Notification.Name("MTMRTricklePreview"), object: nil, userInfo: ["trickle": trickle])
+            return ["ok": true]
+        }
+        let count = command.count ?? 45
         guard (1...200).contains(count) else { return rejected("count must be 1-200") }
-        let seconds = command.seconds ?? 5.5
+        let seconds = command.seconds ?? 2.5
         guard seconds.isFinite else { return rejected("seconds must be finite") }
         guard (0.5...10).contains(seconds) else { return rejected("seconds must be 0.5-10") }
         let style = command.style ?? "dots"

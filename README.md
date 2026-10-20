@@ -1,74 +1,126 @@
 # touchbar-interface
 
-A Touch Bar app built on [MTMR](https://github.com/Toxblh/MTMR), with a local socket and the `tbctl` client. Scripts, tools and other projects use the socket to push notifications, button state and panel selection to the bar.
+A Touch Bar app based on [My TouchBar My Rules (MTMR)](https://github.com/Toxblh/MTMR), with a local socket and `tbctl`.
+Scripts and other projects use the socket to send notifications, button state, panel selection, and particle previews.
 
-Targets Apple Silicon MacBook Pros with a Touch Bar. Developed and tested on macOS 14.7.6.
+The app targets Apple Silicon MacBook Pros with a Touch Bar.
+The reference machine runs macOS 14.7.6.
 
 ## The bar
 
-```
-[controls][gap][ left buttons ] |  [ notification area, centred ]  | [ App Controls panel ......... ][switcher]
+```text
+[universal control][gap][ particle region ] [ notification area, centred ] [ App Controls panel ][switcher]
 ```
 
-- **Universal control:** a 30 × 30 button opens a separate page with Apple's system brightness and volume sliders; tap it again to return, or hold the main-bar button for 0.5 seconds to return to Apple's Touch Bar. See [layouts.md](docs/layouts.md#universal-control-button).
-- **Left space:** available for socket-driven live buttons; Teams controls now live in the right-side Teams panel.
-- **Notification area:** shows `tbctl notify` messages and a copy of every macOS notification, with the icon of the sender app.
-- **App Controls:** one panel at a time, selected with the switcher at the right edge. The everyday panels are System, Teams, lob, YouTube Music, praatvol, Stats and Fan (VS Code remains available).
-- **Teams:** meeting title and elapsed time, with green/red mic and camera controls. One event-driven watcher auto-selects the panel when the meeting window is focused; call end restores the previous panel unless manually changed. Blur stays on Teams. See [app-controls.md](docs/app-controls.md#teams) for verification limits.
-- **Fan control:** the Fan panel runs our own fan curves (Apple, Quiet, Cool, Max, Custom) through the [ThermalForge](https://github.com/ProducerGuy/ThermalForge) root daemon.
+The host measures **1004 × 30 points (pt)**.
+The solver uses 1085 pt only before usable bounds exist.
+The actual layout contains no left buttons beyond the universal control and the spacer.
+Custom layouts can add live buttons.
+
+- The **universal control** measures 30 × 30 pt and opens a separate page.
+  The page contains native brightness and volume sliders, each 200 pt wide.
+  Tap the control again to return.
+  The page also closes after 6 seconds without interaction.
+  Hold the main-bar control for at least 0.5 seconds to return to Apple's Touch Bar.
+- The **particle region** extends from the left edge to the notification area.
+  Adapter connection triggers a green burst.
+  Active charging below full capacity adds a sparse green trickle.
+  An external Universal Serial Bus (USB) device or external display connection triggers blue sparks.
+- The **notification area** shows socket messages and copies of macOS notifications.
+  Each display lasts at most 8 seconds.
+  A dim dot marks hidden live entries; tap the area to recall the newest entry.
+- **App Controls** shows one panel at a time, with the switcher on the right.
+  The actual order is System, Teams, lob, YouTube Music, praatvol, Stats, and Fan.
+  Visual Studio Code (VS Code) remains available through `tbctl app vscode`.
+- The **Teams panel** shows the meeting name above a red elapsed timer.
+  Two bordered buttons control the microphone and camera.
+  One event-driven watcher selects Teams on meeting-window focus.
+  Call end restores the previous panel unless a manual selection cancels restoration.
+  Focus loss leaves Teams selected.
+- The **Fan panel** controls Apple, Quiet, Cool, Max, and Custom modes through the [ThermalForge](https://github.com/ProducerGuy/ThermalForge) root daemon.
 
 ## Status
 
 | Part | State |
 |---|---|
-| Native arm64 build (no Xcode, no Rosetta) | Working. |
-| Socket and `tbctl` (notify, clear, button, buttons, app, apps, fan, layout) | Working. |
-| Notification area (queue, swipe, two-line entries, app icons, macOS notification mirror) | Working. |
-| Live buttons and supervised watchers | Working; Teams uses one App Controls watcher instead of two button pollers. |
-| App Controls (System, Teams, lob, YouTube Music, praatvol, VS Code, Stats) | Teams implemented and focused-tested; real-call/hardware verification pending. |
-| Fan panel and fan control (ThermalForge daemon) | Working; curves to be tuned. |
+| Native arm64 build | The build uses Command Line Tools without full Xcode or Rosetta. |
+| Socket and `tbctl` | The client supports notify, clear, button, buttons, app, fan, particles, and layout. |
+| Feature commands | The socket also accepts `apps` and `teams`; neither name is a `tbctl` subcommand. |
+| Notifications | The queue supports swipe, recall, two-line entries, app icons, and the macOS mirror. |
+| Live buttons | The socket updates custom buttons without a layout reload. MTMR supervises watcher processes. |
+| App Controls | The registry contains eight panels; the actual layout lists seven. |
+| Particles | Power notifications drive the burst and trickle. Device and display events drive blue sparks. |
+| Tests | The runner includes six Python files. A known stale notification assertion prevents a clean full-suite result. |
 
 ## Repository layout
 
-```
-bin/tbctl          command-line client for the socket
+```text
+bin/tbctl          command-line client for the socket and local layout installation
 mtmr/
-  build.sh         native build of MTMR (Command Line Tools only)
-  patches/         our changes to upstream MTMR files (0001-0005, applied in order)
-  overlay/         our own Swift files, copied into the build
-  tests/           run-tests.sh: Python CLI tests and standalone Swift harnesses
+  build.sh         native build with Command Line Tools
+  patches/         patches 0001–0006, applied in order
+  overlay/         Swift sources copied into the build
+  tests/           Python tests and standalone Swift harnesses
 layouts/
-  template.json    reference layout for spacing and look
-  actual.json      the everyday layout
-teams/             Teams debug-port controls, event-driven panel watcher and tap actions
-docs/              guides and findings (see below)
-build/             build output (git-ignored)
+  template.json    reference layout with an exit button and shape placeholders
+  actual.json      everyday layout with universal control and App Controls
+teams/             debug-port client, event-driven watcher, and tap scripts
+docs/              guides and verified findings
+build/             ignored build output
 ```
 
 ## Quick start
 
+Run these commands from this repository:
+
 ```bash
-git clone https://github.com/Toxblh/MTMR.git ../MTMR && git -C ../MTMR checkout 94fc98cceff94cf69a2e7c28f726cf35ab93c461
+git clone https://github.com/Toxblh/MTMR.git ../MTMR
+git -C ../MTMR checkout 94fc98cceff94cf69a2e7c28f726cf35ab93c461
 mtmr/build.sh
 open build/MTMR.app
+bin/tbctl layout actual --dry-run
 bin/tbctl layout actual
 bin/tbctl notify "hello"
 ```
 
-After every rebuild, reset and grant the Accessibility permission again. See [docs/runbook-build-mtmr.md](docs/runbook-build-mtmr.md).
+Grant Accessibility access on first launch.
+After each rebuild, reset Accessibility access.
+Grant Accessibility access again before further use.
+Follow [the build runbook](docs/runbook-build-mtmr.md) for the exact procedure.
+Follow [the Teams runbook](docs/runbook-teams-debug.md) to enable Teams controls.
+The Fan panel requires a separate ThermalForge installation.
+
+Preview effects without a layout change:
+
+```bash
+bin/tbctl particles
+bin/tbctl particles --trickle on
+bin/tbctl particles --trickle off
+bin/tbctl particles --usb
+```
+
+Build before the full test suite:
+
+```bash
+mtmr/build.sh
+bash mtmr/tests/run-tests.sh
+```
+
+The build runbook lists separate tests and the known stale notification assertion.
 
 ## Documentation
 
 | Document | Content |
 |---|---|
-| [runbook-build-mtmr.md](docs/runbook-build-mtmr.md) | Build, run, permissions, troubleshooting |
-| [layouts.md](docs/layouts.md) | Template and actual layouts, notifications, the macOS notification mirror |
-| [live-buttons.md](docs/live-buttons.md) | Socket protocol for buttons, watchers |
-| [app-controls.md](docs/app-controls.md) | App Controls panels, data sources, how to add a panel |
-| [layout-maths.md](docs/layout-maths.md) | How the layout solver places items |
-| [runbook-teams-debug.md](docs/runbook-teams-debug.md) | Teams debug port, mute control, LaunchAgent |
-| [findings.md](docs/findings.md) | Facts about the Touch Bar, MTMR, macOS and Teams |
+| [runbook-build-mtmr.md](docs/runbook-build-mtmr.md) | The runbook covers builds, tests, permissions, and faults. |
+| [layouts.md](docs/layouts.md) | The guide covers layouts, universal control, particles, and notifications. |
+| [live-buttons.md](docs/live-buttons.md) | The guide defines the socket and watcher contracts. |
+| [app-controls.md](docs/app-controls.md) | The guide describes panels, sources, and extension steps. |
+| [layout-maths.md](docs/layout-maths.md) | The guide explains geometry and solver rules. |
+| [runbook-teams-debug.md](docs/runbook-teams-debug.md) | The runbook covers the debug port, watcher, and controls. |
+| [findings.md](docs/findings.md) | The document records platform facts and source evidence. |
 
 ## License
 
-MIT, see [LICENSE](LICENSE). Builds on MTMR (MIT), see [NOTICE](NOTICE).
+The project uses the MIT License; see [LICENSE](LICENSE).
+MTMR also uses the MIT License; see [NOTICE](NOTICE).
