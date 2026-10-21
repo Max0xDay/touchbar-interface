@@ -20,7 +20,6 @@ enum AppControlsRegistry {
         AppControlsMusicPanel.self,
         AppControlsCodePanel.self,
         AppControlsStatsPanel.self,
-        AppControlsLobPanel.self,
         AppControlsFanPanel.self,
         AppControlsPraatvolPanel.self,
     ]
@@ -52,16 +51,14 @@ struct AppControlsOptions: Decodable, Equatable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let panels = try container.decodeIfPresent([String].self, forKey: .panels) ?? AppControlsRegistry.panels.map { $0.id }
-        for id in panels where AppControlsRegistry.panel(id) == nil {
-            throw DecodingError.dataCorruptedError(forKey: .panels, in: container, debugDescription: "unknown app controls panel: \(id)")
-        }
         guard !panels.isEmpty else {
             throw DecodingError.dataCorruptedError(forKey: .panels, in: container, debugDescription: "panels must not be empty")
         }
         let switcher = try container.decodeIfPresent(Side.self, forKey: .switcher) ?? .left
         let praatvol = try container.decodeIfPresent(PraatvolAppOptions.self, forKey: .praatvol) ?? PraatvolAppOptions()
         let teams = try container.decodeIfPresent(TeamsPanelOptions.self, forKey: .teams) ?? TeamsPanelOptions()
-        self.init(panels: panels, switcher: switcher, praatvol: praatvol, teams: teams)
+        let knownPanels = panels.filter { AppControlsRegistry.panel($0) != nil }
+        self.init(panels: knownPanels.isEmpty ? [AppControlsRegistry.fallbackId] : knownPanels, switcher: switcher, praatvol: praatvol, teams: teams)
     }
 }
 
@@ -157,8 +154,6 @@ final class AppControlsView: NSView {
             self?.showSelectedPanel(animated: true)
         }
         showSelectedPanel(animated: false)
-        // lob states depend on transitions (working → finished), so watch from load, not only while lob shows.
-        if options.panels.contains(AppControlsLobPanel.id) { LobMonitor.shared.start() }
         // The fan curve must run while other panels show (and the hold needs its heartbeat).
         if options.panels.contains(AppControlsFanPanel.id) { FanController.shared.start() }
     }

@@ -134,7 +134,7 @@ class NotificationTests(unittest.TestCase):
         appControls = [item for item in items if item["type"] == "appControls"]
         self.assertEqual(len(appControls), 1)
         self.assertEqual(appControls[0]["align"], "right")
-        self.assertEqual(appControls[0]["panels"][:2], ["system", "teams"])
+        self.assertEqual(appControls[0]["panels"], ["system", "teams", "ytmusic", "praatvol", "stats", "fan"])
         self.assertEqual(appControls[0]["teams"], {"directory": str(repositoryRoot / "teams")})
 
     def compileHarness(self, temporaryDirectory):

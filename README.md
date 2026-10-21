@@ -29,8 +29,9 @@ Custom layouts can add live buttons.
 - The **notification area** shows socket messages and copies of macOS notifications.
   Each display lasts at most 8 seconds.
   A dim dot marks hidden live entries; tap the area to recall the newest entry.
+  Lob notifications keep the lob icon, use the fixed heading `lob`, and rewrite bodies containing “waiting for your input” to “lob is awaiting response”.
 - **App Controls** shows one panel at a time, with the switcher on the right.
-  The actual order is System, Teams, lob, YouTube Music, praatvol, Stats, and Fan.
+  The actual order is System, Teams, YouTube Music, praatvol, Stats, and Fan.
   Visual Studio Code (VS Code) remains available through `tbctl app vscode`.
 - The **Teams panel** shows the meeting name above a red elapsed timer.
   Two bordered buttons control the microphone and camera.
@@ -48,7 +49,7 @@ Custom layouts can add live buttons.
 | Feature commands | The socket also accepts `apps` and `teams`; neither name is a `tbctl` subcommand. |
 | Notifications | The queue supports swipe, recall, two-line entries, app icons, and the macOS mirror. |
 | Live buttons | The socket updates custom buttons without a layout reload. MTMR supervises watcher processes. |
-| App Controls | The registry contains eight panels; the actual layout lists seven. |
+| App Controls | The registry contains seven panels; the actual layout lists six. |
 | Particles | Power notifications drive the burst and trickle. Device and display events drive blue sparks. |
 | Tests | The runner includes six Python files. A known stale notification assertion prevents a clean full-suite result. |
 

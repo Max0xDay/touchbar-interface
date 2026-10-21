@@ -15,7 +15,7 @@ Focus loss leaves Teams selected.
 
 ## Panels
 
-The actual layout lists `system`, `teams`, `lob`, `ytmusic`, `praatvol`, `stats`, and `fan`, in that order.
+The actual layout lists `system`, `teams`, `ytmusic`, `praatvol`, `stats`, and `fan`, in that order.
 The registry also contains `vscode`.
 An initial selection without a valid stored identifier uses System.
 A socket selection can show any registered panel, even outside the layout's panel list.
@@ -29,7 +29,6 @@ The switcher then includes the selected panel before the configured list.
 | VS Code | `vscode` | The Visual Studio Code (VS Code) icon identifies the panel. | A window control cycles windows. Run sends F5; Command opens the Command Palette with ⇧⌘P. |
 | praatvol | `praatvol` | A waveform tile identifies the panel in the switcher. | Room/Call buttons start capture. The panel shows recording, progress, review, and attention states. |
 | Stats | `stats` | The Stats icon identifies the panel. | Four cells show processor load, memory, temperature, and network rates. A tap opens Stats. |
-| lob | `lob` | An orange terminal prompt appears on black. | Each session has a state pill. Taps perform no action. |
 | Fan | `fan` | A graphite tile contains a white fan. | A mode button, history graph, and readout control the fan. Custom replaces the graph with a slider. |
 
 System refreshes every 0.5 seconds and reads battery state every 10 seconds.
@@ -309,34 +308,6 @@ Optional numeric `percent` sets the saved custom value from 0 through 100; `perc
 The reply contains `fan.mode`, `fan.customPercent`, and available `temperature`, `rpm`, or `error` fields.
 The socket registers `fan` after a layout includes the Fan panel.
 
-## lob sessions
-
-The panel recognises Claude processes whose initial prompt contains `Active project: <name>.`.
-The panel uses tmux session names where available and the project name otherwise.
-The display omits suffix `-01` and renders `-02` as ` 2`.
-The monitor can list a process even if tmux cannot reach that process's server.
-
-- **Working:** A spinner line appears within 12 non-empty lines above the `❯` prompt.
-  The pattern matches a glyph, a capitalised word, and an ellipsis.
-  For unreachable tmux sessions, average CPU use of at least 8% over about 6 seconds indicates work.
-  A CPU-only work interval shorter than 15 seconds returns to Idle rather than Finished.
-- **Delegate:** A descendant process contains `pi-delegate.py --tier` in its command.
-  The purple arc takes priority over Working.
-- **Finished:** Work or delegation ends.
-  The green pulse persists until work resumes or 30 minutes pass.
-- **Idle:** The session has no other state and displays a grey dot.
-
-The monitor samples every 1.5 seconds from zone load, including while another panel appears.
-Working uses a blue arc; Delegate uses a slower, shorter purple arc.
-Finished uses a green pulse; Reduce Motion disables the animations.
-
-One session uses full height in the left column.
-Two sessions stack in the left column.
-Three sessions leave the top-left cell empty in a two-row grid.
-Four sessions fill that grid; five or more add columns and horizontal scroll.
-Pill widths have an 88 pt minimum.
-Compact pills show the project name; a single pill also shows elapsed state time.
-
 ## Layout entry
 
 ```json
@@ -345,7 +316,7 @@ Compact pills show the project name; a single pill also shows elapsed state time
   "align": "right",
   "width": 340,
   "switcher": "right",
-  "panels": ["system", "teams", "lob", "ytmusic", "praatvol", "stats", "fan"],
+  "panels": ["system", "teams", "ytmusic", "praatvol", "stats", "fan"],
   "watcher": ["${REPO}/teams/teams-watch"],
   "teams": {"directory": "${REPO}/teams"},
   "praatvol": {"app": "dev"}
@@ -353,9 +324,9 @@ Compact pills show the project name; a single pill also shows elapsed state time
 ```
 
 `switcher` accepts `left` or `right`; the default is `left`.
-`panels` defaults to the registry order and must contain at least one known identifier.
-The registry order is System, Teams, YouTube Music, VS Code, Stats, lob, Fan, and praatvol.
-Unknown identifiers reject the layout.
+`panels` defaults to the registry order and rejects an empty list.
+The registry order is System, Teams, YouTube Music, VS Code, Stats, Fan, and praatvol.
+Unknown identifiers are ignored; a list with no known identifiers uses System.
 
 `width` sets the complete zone width, including the switcher.
 The solver never shrinks right items.
@@ -418,7 +389,6 @@ The zone runs periodic refreshes only while attached and enforces a minimum inte
 | `mtmr/overlay/AppControlsPraatvolPanel.swift` | The file implements praatvol controls and readouts. |
 | `mtmr/overlay/PraatvolClient.swift` | The file defines the praatvol client, snapshots, and display model. |
 | `mtmr/overlay/AppControlsStatsPanel.swift` | The file implements Stats and system metrics. |
-| `mtmr/overlay/AppControlsLobPanel.swift` | The file implements session discovery and pills. |
 | `mtmr/overlay/AppControlsFanPanel.swift` | The file implements Fan, curves, and the daemon client. |
 | `mtmr/overlay/NotificationMirror.swift` | The file copies macOS notifications into the queue. |
 | `mtmr/patches/0005-app-controls-watchers-welcome.patch` | The patch adds the item type, watcher supervision, mirror setup, and welcome hook. |

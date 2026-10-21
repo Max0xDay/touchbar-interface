@@ -125,7 +125,7 @@ The actual layout starts one watcher through its `appControls` item:
   "align":"right",
   "width":340,
   "switcher":"right",
-  "panels":["system","teams","lob","ytmusic","praatvol","stats","fan"],
+  "panels":["system","teams","ytmusic","praatvol","stats","fan"],
   "watcher":["${REPO}/teams/teams-watch"],
   "teams":{"directory":"${REPO}/teams"},
   "praatvol":{"app":"dev"}
