@@ -28,12 +28,48 @@ struct LayoutViewTests {
             try checkNotificationLayout(definitions)
             try checkStackPath(definitions.filter { !$0.type.isNotification })
             try checkDecodedOptions()
+            try checkRemovedPanelCompatibility()
+            try checkMirroredNotifications()
             try LiveButtonTests.run()
             print("Layout view checks passed (no Touch Bar created)")
         } catch {
             NSLog("Layout view tests failed: %@", String(describing: error))
             exit(1)
         }
+    }
+
+    private static func checkRemovedPanelCompatibility() throws {
+        precondition(AppControlsRegistry.panel("lob") == nil)
+        let defaults = UserDefaults.standard
+        let arguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        defaults.setVolatileDomain(["AppControlsPanel": "lob"], forName: UserDefaults.argumentDomain)
+        defer { defaults.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain) }
+        precondition(AppControlsSelection.shared.id == "system", "A removed saved panel must fall back to System")
+        for (json, expected) in [
+            (#"{"panels":["system","lob","teams","stats"]}"#, ["system", "teams", "stats"]),
+            (#"{"panels":["lob"]}"#, ["system"]),
+            (#"{"panels":["unknown","teams"]}"#, ["teams"])
+        ] {
+            let options = try JSONDecoder().decode(AppControlsOptions.self, from: Data(json.utf8))
+            precondition(options.panels == expected)
+        }
+    }
+
+    private static func checkMirroredNotifications() throws {
+        let options = try JSONDecoder().decode(NotificationMirrorOptions.self, from: Data(#"{"lobApps":["net.kovidgoyal.kitty"]}"#.utf8))
+        let store = NotificationStore.shared
+        defer { store.clear() }
+        let mirror = NotificationMirror()
+        mirror.post(title: "Claude", body: "Claude is WAITING FOR YOUR INPUT", app: "NET.KOVIDGOYAL.KITTY", options: options)
+        precondition(store.title == "lob")
+        precondition(store.text == "lob is awaiting response")
+        precondition(store.icon?.tiffRepresentation == lobIcon(size: TouchBarIcon.switcherBox).tiffRepresentation)
+        mirror.post(title: "Other heading", body: "Permission requested", app: "net.kovidgoyal.kitty", options: options)
+        precondition(store.title == "lob")
+        precondition(store.text == "Permission requested")
+        mirror.post(title: "Ordinary heading", body: "waiting for your input", app: "com.example.other", options: options)
+        precondition(store.title == "Ordinary heading")
+        precondition(store.text == "waiting for your input")
     }
 
     static let fixture = ##"[{"type":"exitTouchbar","title":"✕","align":"left","width":30},{"type":"staticButton","title":"","align":"left","width":1,"bordered":false},{"type":"staticButton","id":"fixture-mic","icon":"mic.fill","tint":"#8e8e93","title":"","align":"left","width":75},{"type":"staticButton","title":"","align":"left","width":75},{"type":"staticButton","title":"","align":"left","width":75},{"type":"notification","fadeSeconds":0},{"type":"staticButton","title":"right 1","align":"right","width":100},{"type":"staticButton","title":"right 2","align":"right","width":100}]"##

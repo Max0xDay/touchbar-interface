@@ -96,10 +96,6 @@ The upstream repository is [My TouchBar My Rules (MTMR)](https://github.com/Toxb
 - The praatvol panel subscribes directly to the Dev or release control socket.
   The client accepts version 1 snapshots with optional review and progress fields. **Source.**
 - Saved feedback uses `stepStartedAt` if available, so old Saved snapshots do not replay a recent-save interval. **Source.**
-- Session monitoring recognises Claude processes through `Active project:` prompts and tmux panes.
-  A missing tmux socket does not prevent process discovery. **Source.**
-- The monitor uses prompt spinner patterns for reachable panes and averaged CPU counters otherwise.
-  The fallback threshold is 8% over about 6 seconds, with a 15-second minimum before a Finished transition. **Source.**
 
 ## 4a. Fans and ThermalForge
 

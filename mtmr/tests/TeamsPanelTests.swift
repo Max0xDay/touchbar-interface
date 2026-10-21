@@ -51,11 +51,11 @@ struct TeamsPanelTests {
         checkGeometry()
 
         var selection = TeamsAutoSelection()
-        precondition(selection.receive(call, current: "lob") == "teams")
+        precondition(selection.receive(call, current: "ytmusic") == "teams")
         let blurred = try snapshot("{\"inCall\":true,\"focused\":false}")
         precondition(selection.receive(blurred, current: "teams") == nil)
         let ended = try snapshot("{\"inCall\":false}")
-        precondition(selection.receive(ended, current: "teams") == "lob")
+        precondition(selection.receive(ended, current: "teams") == "ytmusic")
         precondition(selection.receive(call, current: "stats") == "teams")
         selection.manuallySelected()
         precondition(selection.receive(call, current: "fan") == nil)

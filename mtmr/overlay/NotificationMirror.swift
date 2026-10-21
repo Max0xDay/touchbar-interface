@@ -53,22 +53,20 @@ final class NotificationMirror {
             let records = self.readNewRecords()
             guard !records.isEmpty else { return }
             DispatchQueue.main.async {
-                for record in records { self.post(record, options: options) }
+                for record in records { self.post(title: record.title, body: record.body, app: record.app, options: options) }
             }
         }
     }
 
-    private func post(_ record: Record, options: NotificationMirrorOptions) {
-        let app = record.app.lowercased()
+    func post(title: String, body: String, app: String, options: NotificationMirrorOptions) {
+        let app = app.lowercased()
         guard !options.ignoreApps.contains(app) else { return }
-        guard !record.title.isEmpty || !record.body.isEmpty else { return }
+        guard !title.isEmpty || !body.isEmpty else { return }
         let seconds = options.stickyApps.contains(app) ? options.stickySeconds : nil
-        var title = record.title
-        var body = record.body
-        // Claude's notifications through kitty name no session: credit the lob session that last stopped working,
-        // with its folder as the heading.
-        if options.lobApps.contains(app), let session = LobMonitor.shared.latestFinished() {
-            title = LobMonitor.folder(of: session.pid) ?? session.name
+        var title = title
+        var body = body
+        if options.lobApps.contains(app) {
+            title = "lob"
             if body.range(of: "waiting for your input", options: .caseInsensitive) != nil { body = "lob is awaiting response" }
         }
         // Title and body: two lines (heading, then the body smaller). Only one of them: a single line.
@@ -145,5 +143,38 @@ final class NotificationMirror {
     private func closeDatabase() {
         sqlite3_close(database)
         database = nil
+    }
+}
+
+/// The lob icon, drawn in code: a terminal prompt — orange ">_" — on a black tile (user's choice: orange and black).
+func lobIcon(size: CGFloat) -> NSImage {
+    return NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
+        let tile = rect.insetBy(dx: rect.width * 0.06, dy: rect.height * 0.06)
+        let corner = tile.width * 0.24
+        let shape = NSBezierPath(roundedRect: tile, xRadius: corner, yRadius: corner)
+        NSGradient(starting: NSColor(white: 0.12, alpha: 1), ending: NSColor(white: 0.02, alpha: 1))?.draw(in: shape, angle: -90)
+        // A faint edge keeps the dark tile visible on the black bar.
+        NSColor(white: 1, alpha: 0.18).setStroke()
+        shape.lineWidth = max(0.5, size * 0.02)
+        shape.stroke()
+
+        let stroke = max(1.2, size * 0.085)
+        let left = tile.minX + tile.width * 0.24
+        let tip = tile.minX + tile.width * 0.44
+        let chevron = NSBezierPath()
+        chevron.move(to: NSPoint(x: left, y: tile.midY + tile.height * 0.17))
+        chevron.line(to: NSPoint(x: tip, y: tile.midY))
+        chevron.line(to: NSPoint(x: left, y: tile.midY - tile.height * 0.17))
+        chevron.lineWidth = stroke
+        chevron.lineCapStyle = .round
+        chevron.lineJoinStyle = .round
+        let orange = NSColor(srgbRed: 1, green: 0.58, blue: 0.1, alpha: 1)
+        orange.setStroke()
+        chevron.stroke()
+
+        let cursor = NSRect(x: tile.minX + tile.width * 0.5, y: tile.midY - tile.height * 0.17 - stroke / 2, width: tile.width * 0.26, height: stroke)
+        orange.setFill()
+        NSBezierPath(roundedRect: cursor, xRadius: stroke / 2, yRadius: stroke / 2).fill()
+        return true
     }
 }

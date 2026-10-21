@@ -253,10 +253,9 @@ The template leaves the mirror disabled.
 - `stickyApps` extends entry lifetime to `stickySeconds`, which defaults to 600 seconds.
   Each display still lasts at most 8 seconds.
 - `lobApps` replaces the sender icon with the lob icon.
-  The mirror uses the most recently finished session's folder as the heading if a finished session exists.
+  The heading is always `lob`.
   A body that contains “waiting for your input” becomes “lob is awaiting response”.
-  Without a finished session, the mirror preserves the notification text.
-  Closely timed session finishes can produce incorrect attribution.
+  Other bodies keep their text.
 - `ignoreApps` excludes listed apps from the mirror.
 - The mirror compares app identifiers without letter case.
 - `stickySeconds` must be finite, positive, and at most 86400 seconds.
