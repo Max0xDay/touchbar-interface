@@ -10,6 +10,7 @@ set -euo pipefail
 readonly EXPECTED_UPSTREAM_COMMIT="94fc98cceff94cf69a2e7c28f726cf35ab93c461"
 readonly BUNDLE_NAME="MTMR.app"
 readonly DEPLOYMENT_TARGET="11.0"
+readonly signingIdentity="MTMR Local Signing"
 
 scriptDirectory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repositoryRoot="$(cd "${scriptDirectory}/.." && pwd)"
@@ -114,8 +115,15 @@ assemble_bundle() {
 }
 
 sign_and_verify() {
-  step "Signing (ad hoc) and verifying"
-  codesign --force --sign - "${bundlePath}"
+  local signingIdentities
+  signingIdentities="$(security find-identity -p codesigning)" || fail "could not list code-signing identities"
+  if grep -Fq -- "\"${signingIdentity}\"" <<< "${signingIdentities}"; then
+    step "Signing with ${signingIdentity} and verifying"
+    codesign --force --sign "${signingIdentity}" "${bundlePath}"
+  else
+    step "Signing (ad hoc) and verifying; mtmr/make-signing-identity.sh makes Accessibility permission stick"
+    codesign --force --sign - "${bundlePath}"
+  fi
   local architectures
   architectures="$(lipo -archs "${bundlePath}/Contents/MacOS/MTMR")"
   [[ "${architectures}" == "arm64" ]] || fail "expected an arm64-only binary, got: ${architectures}"

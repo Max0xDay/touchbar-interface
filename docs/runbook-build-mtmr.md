@@ -51,6 +51,47 @@ The build prints a step prefix `==>` and finishes with `Built .../build/MTMR.app
 Upstream deprecation and unused-variable warnings can appear.
 The build recreates the app bundle and work directory, without a live layout change or app restart.
 
+### Stable signing identity
+
+For local builds, create the optional **MTMR Local Signing** identity once, after reviewing the preview:
+
+```bash
+mtmr/make-signing-identity.sh --dry-run
+mtmr/make-signing-identity.sh
+mtmr/build.sh
+```
+
+The setup script creates a self-signed RSA 2048 certificate valid for 10 years, with digital-signature key usage and code-signing extended key usage.
+It packages the certificate and private key with a random one-time password and imports them into `~/Library/Keychains/login.keychain-db`, allowing `/usr/bin/codesign` to access the key.
+Temporary files are removed on exit; no system trust settings are changed.
+It refuses to replace an existing identity with the same name, including an untrusted one.
+The dry run only prints steps and commands; it does not inspect or modify the keychain or create temporary files.
+macOS may show a keychain prompt, “codesign wants to use key”; choose **Always Allow**.
+
+The build prints whether it uses this identity or ad-hoc signing.
+It searches all code-signing identities, not only trusted ones (`security find-identity -p codesigning`, without `-v`).
+CI has no local identity and continues to use ad-hoc signing.
+Verify the signer after building:
+
+```bash
+codesign -dv --verbose=2 build/MTMR.app 2>&1 | grep -i authority
+```
+
+Expect `Authority=MTMR Local Signing`.
+The first rebuild after switching from ad-hoc signing still needs one Accessibility regrant because the signing identity changed.
+After that, rebuilds signed with the same identity should retain the grant: quit and reopen MTMR without `tccutil reset` using the routine below.
+This retention still needs confirmation on the reference Mac across two locally signed rebuilds; setup does not launch the app or change Accessibility permissions.
+Keep the identity: deleting and recreating a certificate with the same name changes its cryptographic identity.
+
+Rollback removes the certificate and its private key:
+
+```bash
+security delete-identity -c "MTMR Local Signing"
+```
+
+The next build falls back to ad-hoc signing and needs the Accessibility reset/regrant routine again.
+An already-built app keeps its existing signature until rebuilt.
+
 ### Branding
 
 After copying upstream images, the build installs `mtmr/branding/StatusImage.png` for both the menu bar and Touch Bar control strip, plus `AppIcon.icns` for the app icon.
@@ -194,12 +235,23 @@ Quit returns the Touch Bar to macOS.
 Grant Accessibility access on first launch through System Settings > Privacy & Security > Accessibility.
 Without access, synthetic key events and Visual Studio Code (VS Code) window discovery fail.
 
-After every rebuild, quit MTMR before the permission reset.
-The ad-hoc signature changes, so the old grant can remain visible but fail to match the app.
-Reset only this bundle's permission:
+With the stable signing identity and an existing grant for it, restart after a completed rebuild without resetting Accessibility:
 
 ```bash
 osascript -e 'tell application "MTMR" to quit'
+sleep 2
+open build/MTMR.app
+```
+
+Do not restart while the build is still running.
+For **ad-hoc builds**, reset and regrant after every rebuild.
+Also use this reset/regrant routine once after switching from ad hoc to the local signing identity.
+The changed signature can leave an old grant visible but unable to match the app.
+Quit before resetting only this bundle's permission:
+
+```bash
+osascript -e 'tell application "MTMR" to quit'
+sleep 2
 tccutil reset Accessibility com.maxday.touchbar-interface.mtmr-dev
 open build/MTMR.app
 ```
@@ -216,7 +268,7 @@ Check for stale permission errors after restart:
 ```
 
 Transparency, Consent, and Control (TCC) logs use `Failed to match existing code requirement` for a stale grant.
-A stable local signing identity can avoid repeated signature changes; this build uses ad-hoc signing instead.
+The optional [stable signing identity](#stable-signing-identity) avoids the changing ad-hoc identity; the build falls back to ad hoc when it is absent.
 
 ## Configuration
 
@@ -268,7 +320,7 @@ Verify the complete sequence with a build.
 3. The private framework path comes from `$(xcrun --show-sdk-path)/System/Library/PrivateFrameworks`.
    The build links `DFRFoundation`, `MultitouchSupport`, `CoreBrightness`, and `CoreDisplay`.
 4. The bundle contains the executable, overlay `Info.plist`, default preset, and image files.
-5. `codesign --force --sign -` applies an ad-hoc signature.
+5. `codesign --force --sign "MTMR Local Signing"` uses the local identity when present; otherwise `codesign --force --sign -` applies an ad-hoc signature.
 6. `lipo -archs` checks for arm64 only, and `plutil -lint` validates the property list.
 
 CoreDisplay remains a link dependency for upstream brightness code.

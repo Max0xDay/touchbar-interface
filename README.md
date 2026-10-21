@@ -59,6 +59,7 @@ Custom layouts can add live buttons.
 bin/tbctl          command-line client for the socket and local layout installation
 mtmr/
   build.sh         native build with Command Line Tools
+  make-signing-identity.sh  optional one-time local signing identity setup (--dry-run available)
   branding/        original status/app icons and Swift generator (see branding/README.md)
   patches/         patches 0001–0007, applied in order
   overlay/         Swift sources copied into the build
@@ -93,9 +94,11 @@ bin/tbctl notify "hello"
 ```
 
 Grant Accessibility access on first launch.
-After each rebuild, reset Accessibility access.
-Grant Accessibility access again before further use.
-Follow [the build runbook](docs/runbook-build-mtmr.md) for the exact procedure.
+For a stable local signing identity, preview `mtmr/make-signing-identity.sh --dry-run`, then run `mtmr/make-signing-identity.sh` once before rebuilding.
+The first rebuild signed with **MTMR Local Signing** needs one Accessibility regrant; later rebuilds with the same identity should only need a quit/reopen, without a permission reset.
+This retention still needs verification on the reference Mac; macOS may prompt for key access—choose **Always Allow**.
+Without that identity, builds (including CI) use ad-hoc signing and need an Accessibility reset and regrant after each rebuild.
+Follow [the build runbook](docs/runbook-build-mtmr.md#stable-signing-identity) for setup, restart, verification, and rollback.
 Follow [the Teams runbook](docs/runbook-teams-debug.md) to enable Teams controls.
 The Fan panel requires a separate ThermalForge installation.
 
