@@ -1,0 +1,22 @@
+--- a/AppDelegate.swift
++++ b/AppDelegate.swift
+@@ -9,7 +9,7 @@
+ import Cocoa
+ 
+ class AppDelegate: NSObject, NSApplicationDelegate {
+-    let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
++    let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+     var isBlockedApp: Bool = false
+ 
+     private var fileSystemSource: DispatchSourceFileSystemObject?
+@@ -21,7 +21,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
+         NotificationSocketServer.shared.start()
+ 
+         if let button = statusItem.button {
+-            button.image = bundledImage("StatusImage")
++            let statusImage = bundledImage("StatusImage")
++            statusImage.size = NSSize(width: statusImage.size.width * 18 / statusImage.size.height, height: 18)
++            button.image = statusImage
+         }
+         createMenu()
+ 

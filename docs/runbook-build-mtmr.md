@@ -51,6 +51,64 @@ The build prints a step prefix `==>` and finishes with `Built .../build/MTMR.app
 Upstream deprecation and unused-variable warnings can appear.
 The build recreates the app bundle and work directory, without a live layout change or app restart.
 
+### Stable signing identity
+
+For local builds, create the optional **MTMR Local Signing** identity once, after reviewing the preview:
+
+```bash
+mtmr/make-signing-identity.sh --dry-run
+mtmr/make-signing-identity.sh
+mtmr/build.sh
+```
+
+The setup script creates a self-signed RSA 2048 certificate valid for 10 years, with digital-signature key usage and code-signing extended key usage.
+It packages the certificate and private key with a random one-time password and imports them into `~/Library/Keychains/login.keychain-db`, allowing `/usr/bin/codesign` to access the key.
+Temporary files are removed on exit; no system trust settings are changed.
+It refuses to replace an existing identity with the same name, including an untrusted one.
+The dry run only prints steps and commands; it does not inspect or modify the keychain or create temporary files.
+macOS may show a keychain prompt, “codesign wants to use key”; choose **Always Allow**.
+
+The build prints whether it uses this identity or ad-hoc signing.
+It searches all code-signing identities, not only trusted ones (`security find-identity -p codesigning`, without `-v`).
+CI has no local identity and continues to use ad-hoc signing.
+Verify the signer after building:
+
+```bash
+codesign -dv --verbose=2 build/MTMR.app 2>&1 | grep -i authority
+```
+
+Expect `Authority=MTMR Local Signing`.
+The first rebuild after switching from ad-hoc signing still needs one Accessibility regrant because the signing identity changed.
+After that, rebuilds signed with the same identity should retain the grant: quit and reopen MTMR without `tccutil reset` using the routine below.
+This retention still needs confirmation on the reference Mac across two locally signed rebuilds; setup does not launch the app or change Accessibility permissions.
+Keep the identity: deleting and recreating a certificate with the same name changes its cryptographic identity.
+
+Rollback removes the certificate and its private key:
+
+```bash
+security delete-identity -c "MTMR Local Signing"
+```
+
+The next build falls back to ad-hoc signing and needs the Accessibility reset/regrant routine again.
+An already-built app keeps its existing signature until rebuilt.
+
+### Branding
+
+After copying upstream images, the build installs `mtmr/branding/StatusImage.png` for both the menu bar and Touch Bar control strip, plus `AppIcon.icns` for the app icon.
+Both assets must exist; regeneration is optional and uses only AppKit and `iconutil`:
+
+```bash
+logoDirectory="$(mktemp -d /tmp/touchbar-branding.XXXXXX)"
+swift mtmr/branding/make-logo.swift "$logoDirectory"
+cp "$logoDirectory/StatusImage.png" "$logoDirectory/AppIcon.icns" mtmr/branding/
+```
+
+The temporary directory also contains the 1024 px master and all iconset sizes for review.
+Back up the committed assets before replacing them; restore them from that backup to roll back.
+Patch `0007-status-item-wide-logo` uses a variable-width menu-bar slot and sizes the template image to 18 pt high with proportional width (49.5 pt for the 88 × 32 logo).
+The Touch Bar control-strip button has no square size constraint and keeps its default proportional downscaling within the 30 pt bar.
+Hardware appearance still needs review after the next user-controlled rebuild and restart.
+
 ## Tests and coverage
 
 Core tests cover the basics of `NotificationLayoutSolver.swift`, `NotificationStore.swift`, `NotificationSocketServer.swift`, `LiveButtonStore.swift`, `LiveButtonBinding.swift`, and `WatcherSupervisor.swift` in `mtmr/overlay/`, plus `bin/tbctl`.
@@ -177,12 +235,23 @@ Quit returns the Touch Bar to macOS.
 Grant Accessibility access on first launch through System Settings > Privacy & Security > Accessibility.
 Without access, synthetic key events and Visual Studio Code (VS Code) window discovery fail.
 
-After every rebuild, quit MTMR before the permission reset.
-The ad-hoc signature changes, so the old grant can remain visible but fail to match the app.
-Reset only this bundle's permission:
+With the stable signing identity and an existing grant for it, restart after a completed rebuild without resetting Accessibility:
 
 ```bash
 osascript -e 'tell application "MTMR" to quit'
+sleep 2
+open build/MTMR.app
+```
+
+Do not restart while the build is still running.
+For **ad-hoc builds**, reset and regrant after every rebuild.
+Also use this reset/regrant routine once after switching from ad hoc to the local signing identity.
+The changed signature can leave an old grant visible but unable to match the app.
+Quit before resetting only this bundle's permission:
+
+```bash
+osascript -e 'tell application "MTMR" to quit'
+sleep 2
 tccutil reset Accessibility com.maxday.touchbar-interface.mtmr-dev
 open build/MTMR.app
 ```
@@ -199,7 +268,7 @@ Check for stale permission errors after restart:
 ```
 
 Transparency, Consent, and Control (TCC) logs use `Failed to match existing code requirement` for a stale grant.
-A stable local signing identity can avoid repeated signature changes; this build uses ad-hoc signing instead.
+The optional [stable signing identity](#stable-signing-identity) avoids the changing ad-hoc identity; the build falls back to ad hoc when it is absent.
 
 ## Configuration
 
@@ -220,7 +289,7 @@ Fan control requires a separate ThermalForge daemon; the build neither installs 
 
 ## What the build changes versus upstream
 
-The script copies upstream into `build/work/src`, applies patches in filename order, and copies all Swift overlays into that directory.
+The script copies upstream into `build/work/src`, applies patches 0001–0007 in filename order, and copies all Swift overlays into that directory.
 The script leaves the upstream checkout unchanged.
 
 | Patch | Effect |
@@ -231,6 +300,7 @@ The script leaves the upstream checkout unchanged.
 | `0004-live-buttons` | The patch adds validated identifiers, live state, and safe preset rejection. |
 | `0005-app-controls-watchers-welcome` | The patch adds App Controls, watcher supervision, mirror setup, and welcome hooks. The patch limits redundant bar presentations. |
 | `0006-volume-button` | The patch maps upstream's `volume` item to `VolumeTouchBarItem`, which now opens universal control. |
+| `0007-status-item-wide-logo` | The patch gives the menu-bar template logo a variable-width slot and proportional sizing at 18 pt high. |
 
 Overlays implement the queue, socket, solver, live buttons, watcher supervisor, mirror, icons, and App Controls panels.
 Other overlays implement Teams state, praatvol, universal control, brightness, volume, charging particles, and USB/display monitoring.
@@ -238,7 +308,7 @@ Other overlays implement Teams state, praatvol, universal control, brightness, v
 To update patch 0005, prepare upstream with patches 0001–0004 in a scratch repository.
 Record that baseline before patch 0005 and the intended edits.
 Generate the final patch with `git diff` without `diff --git` and `index` headers.
-Keep patch 0006 separate.
+Keep patches 0006 and 0007 separate.
 Verify the complete sequence with a build.
 
 ## How the compile works (and why each flag is there)
@@ -250,7 +320,7 @@ Verify the complete sequence with a build.
 3. The private framework path comes from `$(xcrun --show-sdk-path)/System/Library/PrivateFrameworks`.
    The build links `DFRFoundation`, `MultitouchSupport`, `CoreBrightness`, and `CoreDisplay`.
 4. The bundle contains the executable, overlay `Info.plist`, default preset, and image files.
-5. `codesign --force --sign -` applies an ad-hoc signature.
+5. `codesign --force --sign "MTMR Local Signing"` uses the local identity when present; otherwise `codesign --force --sign -` applies an ad-hoc signature.
 6. `lipo -archs` checks for arm64 only, and `plutil -lint` validates the property list.
 
 CoreDisplay remains a link dependency for upstream brightness code.

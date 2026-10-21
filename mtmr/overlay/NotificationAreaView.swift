@@ -1,7 +1,7 @@
 import Cocoa
 
 enum NotificationDebug {
-    static var enabled = true
+    static var enabled: Bool { UserDefaults.standard.bool(forKey: "DebugLogging") }
 
     static func hierarchy(_ view: NSView) {
         guard enabled else { return }
@@ -11,7 +11,7 @@ enum NotificationDebug {
             chain.append(String(describing: type(of: host)))
             current = host.superview
         }
-        NSLog("MTMR-notif: touch host=%@ window=%@ chain=%@", String(describing: type(of: view)), String(describing: view.window), chain.joined(separator: " -> "))
+        debugLog(String(format: "MTMR-notif: touch host=%@ window=%@ chain=%@", String(describing: type(of: view)), String(describing: view.window), chain.joined(separator: " -> ")))
     }
 }
 
@@ -138,7 +138,7 @@ final class NotificationAreaView: NSView {
         positionContent()
         updateText(animated: false)
         if NotificationDebug.enabled {
-            NSLog("MTMR-notif: area=%@ label=%@", NSStringFromRect(frame), NSStringFromRect(label.frame))
+            debugLog(String(format: "MTMR-notif: area=%@ label=%@", NSStringFromRect(frame), NSStringFromRect(label.frame)))
         }
     }
 
@@ -337,12 +337,12 @@ final class NotificationAreaView: NSView {
     private func receiveTouches(_ event: NSEvent, phase: NSTouch.Phase, state: String) {
         let touches = event.touches(matching: phase, in: self).filter { $0.type == .direct }
         if NotificationDebug.enabled {
-            NSLog("MTMR-notif: event state=%@ directTouches=%ld", state, touches.count)
+            debugLog(String(format: "MTMR-notif: event state=%@ directTouches=%ld", state, touches.count))
         }
         for touch in touches {
             let location = touch.location(in: self)
             if NotificationDebug.enabled {
-                NSLog("MTMR-notif: touch state=%@ location=%@ translation=%@", state, NSStringFromPoint(location), NSStringFromPoint(NSPoint(x: location.x - initialLocation.x, y: location.y - initialLocation.y)))
+                debugLog(String(format: "MTMR-notif: touch state=%@ location=%@ translation=%@", state, NSStringFromPoint(location), NSStringFromPoint(NSPoint(x: location.x - initialLocation.x, y: location.y - initialLocation.y))))
             }
             if phase == .began {
                 guard activeTouch == nil else {

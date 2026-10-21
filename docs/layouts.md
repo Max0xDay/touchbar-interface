@@ -9,7 +9,7 @@ The repository contains two layouts in `layouts/`.
 
 Keep the template as a reference unless an experiment requires a change.
 The template sets `maxChars: 40` and `defaultSeconds: 5`.
-The actual layout sets `maxChars: 36` and `defaultSeconds: 8`.
+The actual layout sets `maxChars: 28` and `defaultSeconds: 8`.
 
 ## Switch the layout
 

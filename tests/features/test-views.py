@@ -72,11 +72,26 @@ class LayoutViewTests(unittest.TestCase):
             print(execution.stdout, end="")
 
 
+class DebugLogTests(unittest.TestCase):
+    def testLazyRuntimeToggle(self):
+        with tempfile.TemporaryDirectory(prefix="mtmr-debug-log-test-") as temporaryDirectory:
+            executablePath = str(Path(temporaryDirectory) / "debug-log-tests")
+            sources = [repositoryRoot / "mtmr/overlay/DebugLog.swift",
+                       repositoryRoot / "tests/features/DebugLogTests.swift"]
+            compilation = compileSwiftHarness(executablePath, sources)
+            self.assertEqual(compilation.returncode, 0, compilation.stderr)
+            execution = subprocess.run([executablePath], capture_output=True, text=True, timeout=10)
+            self.assertEqual(execution.returncode, 0, execution.stderr)
+            self.assertEqual(execution.stderr.count("MTMR-notif:"), 1)
+            self.assertIn("MTMR-notif: event state=began directTouches=2", execution.stderr)
+
+
 class NotificationAreaTests(unittest.TestCase):
     def testTextSwipeAndTransitions(self):
         with tempfile.TemporaryDirectory(prefix="mtmr-area-test-") as temporaryDirectory:
             executablePath = str(Path(temporaryDirectory) / "notification-area-tests")
-            sources = [repositoryRoot / "mtmr/overlay/NotificationLayoutSolver.swift",
+            sources = [repositoryRoot / "mtmr/overlay/DebugLog.swift",
+                       repositoryRoot / "mtmr/overlay/NotificationLayoutSolver.swift",
                        repositoryRoot / "mtmr/overlay/NotificationAreaView.swift",
                        repositoryRoot / "mtmr/overlay/NotificationTouchBarItem.swift",
                        repositoryRoot / "mtmr/overlay/NotificationStore.swift",
