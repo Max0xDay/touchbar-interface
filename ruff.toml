@@ -1,0 +1,12 @@
+target-version = "py39"
+include = ["*.py", "bin/tbctl", "teams/teams-watch"]
+
+[lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]
+
+# Standalone harness tests add tests/support to the import path before importing it.
+[lint.per-file-ignores]
+"tests/core/test-live-state.py" = ["E402"]
+"tests/core/test-notifications.py" = ["E402"]
+"tests/features/test-views.py" = ["E402"]

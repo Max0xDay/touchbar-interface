@@ -107,7 +107,7 @@ The first write occurs immediately; subsequent writes retain the latest value.
 Release or page close preserves the final pending write before the controller stops.
 
 The source retains hardware checks for external displays, unsupported output devices, long presses, and touch ownership.
-Focused checks use `python3 -I mtmr/tests/test-volume.py` without device writes.
+Focused checks use `python3 -I tests/features/test-volume.py` without device writes.
 To roll back, restore the previous sources and actual layout from version control.
 Rebuild the app before an explicit layout installation.
 

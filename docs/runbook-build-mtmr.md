@@ -38,39 +38,77 @@ Run commands from the repository root:
 
 ```bash
 mtmr/build.sh
-bash mtmr/tests/run-tests.sh
+bash tests/run-tests.sh
 ```
 
 A build takes about 70 seconds on the reference machine and produces `build/MTMR.app`.
-The full test duration varies; the earlier suite took about 150 seconds.
-The layout harness compiles sources from `build/work/src`, so rebuild before the full suite after code changes.
+The full test duration varies with the available compiler resources.
+The layout and core binding harnesses compile prepared sources from `build/work/src`.
+Rebuild before tests or coverage after source changes.
 
 The build rejects non-arm64 execution, Rosetta translation, a wrong upstream commit, or upstream changes.
 The build prints a step prefix `==>` and finishes with `Built .../build/MTMR.app (arm64)`.
 Upstream deprecation and unused-variable warnings can appear.
 The build recreates the app bundle and work directory, without a live layout change or app restart.
 
-`run-tests.sh` runs each `test-*.py` file in name order with `python3 -I`.
-The shell stops at the first failed file.
-Run separate files to check later tests after an earlier failure:
+## Tests and coverage
+
+Core tests cover the basics of `NotificationLayoutSolver.swift`, `NotificationStore.swift`, `NotificationSocketServer.swift`, `LiveButtonStore.swift`, `LiveButtonBinding.swift`, and `WatcherSupervisor.swift` in `mtmr/overlay/`, plus `bin/tbctl`.
+A change to core code must come with a core test for the changed behaviour.
+Feature-specific and app-specific changes need no new tests; all existing tests must still pass.
+The [README test policy](../README.md#tests-and-contributions) lists the full source paths.
+
+Build first, then run the suite and informational coverage report:
 
 ```bash
-python3 -I mtmr/tests/test-live-buttons.py
-python3 -I mtmr/tests/test-notifications.py
-python3 -I mtmr/tests/test-praatvol.py
-python3 -I mtmr/tests/test-teams.py
-python3 -I mtmr/tests/test-usb.py
-python3 -I mtmr/tests/test-volume.py
+mtmr/build.sh
+bash tests/run-tests.sh
+bash tests/coverage.sh
 ```
 
-| Test file | Coverage |
+The test runner runs `tests/core/test-*.py` before `tests/features/test-*.py`, in filename order within each directory.
+Each file runs with `python3 -I`.
+The runner prints each path and exits nonzero on the first failure.
+Run focused files to investigate failures:
+
+```bash
+python3 -I tests/core/test-notifications.py
+python3 -I tests/core/test-live-state.py
+python3 -I tests/core/test-tbctl.py
+python3 -I tests/features/test-live-buttons.py
+python3 -I tests/features/test-views.py
+python3 -I tests/features/test-praatvol.py
+python3 -I tests/features/test-teams.py
+python3 -I tests/features/test-usb.py
+python3 -I tests/features/test-volume.py
+```
+
+| Test file | Behaviours |
 |---|---|
-| `test-live-buttons.py` | The fixtures check Teams event routing, state mapping, socket delivery, and idle blocking. |
-| `test-notifications.py` | The tests check the client, notification store/server, pure solver, standalone area, and prepared layout views. |
-| `test-praatvol.py` | A fake socket checks snapshots, progress, review, Saved timing, framing, and reconnects. |
-| `test-teams.py` | The tests check titles, snapshots, geometry, clock, and automatic selection. |
-| `test-usb.py` | The tests check device/display filters, debounce, and the client USB preview message without hardware access. |
-| `test-volume.py` | The tests check the actual layout, native slider containers, press timing, and coalesced writes without device writes. |
+| `core/test-notifications.py` | Solver geometry, queue lifetimes, display deadlines, recall, socket protocol, malformed requests, queue limits, and multiple clients. |
+| `core/test-live-state.py` | Actual button/group bindings and fake watcher starts, stops, retries, and restart backoff. |
+| `core/test-tbctl.py` | Remaining CLI commands, dry runs, temporary layout installation, backup retention, reply framing, and representative error exits. |
+| `features/test-live-buttons.py` | Teams event routing, state mapping, socket delivery, and idle blocking. |
+| `features/test-views.py` | Actual layout validation, notification views, prepared layout views, live visibility, and notification mirroring. |
+| `features/test-praatvol.py` | Snapshots, progress, review, Saved timing, framing, and reconnects through a fake socket. |
+| `features/test-teams.py` | Titles, snapshots, geometry, clock, and automatic selection. |
+| `features/test-usb.py` | Device/display filters, debounce, and accessory preview messages without hardware access. |
+| `features/test-volume.py` | Actual layout, native slider containers, press timing, and coalesced writes without device writes. |
+
+The coverage script compiles core Swift harnesses with `-profile-generate -profile-coverage-mapping`.
+It merges profiles with `xcrun llvm-profdata` and reports the explicit core files with `xcrun llvm-cov report`.
+Coverage is informational; there is no target.
+Only core tests contribute to the report; feature code does not count.
+
+The script also measures `bin/tbctl` with `coverage.py` when that development tool is available.
+It measures subprocess commands and the extensionless script loaded directly by core tests.
+Without `coverage.py`, the script reports Swift coverage only.
+You may install `coverage.py` separately in your development environment.
+The scripts never install tools; the product remains standard-library-only.
+
+The script prints the temporary artifact directory, per-file tables, and totals.
+It exits nonzero only for failed tests or tooling errors.
+Exclusions come only from the explicit core file list; tests use no per-line coverage exclusions.
 
 The repository also contains `ChargingTrickleTests.swift`, but no Python test currently invokes that harness.
 Run the standalone charging harness explicitly:
@@ -78,25 +116,51 @@ Run the standalone charging harness explicitly:
 ```bash
 swiftc -target arm64-apple-macosx11.0 -swift-version 5 \
   mtmr/overlay/ChargingMonitor.swift mtmr/overlay/ParticleFlowView.swift \
-  mtmr/tests/ChargingTrickleTests.swift -framework Cocoa -framework IOKit \
+  tests/features/ChargingTrickleTests.swift -framework Cocoa -framework IOKit \
   -o /tmp/mtmr-charging-tests
 /tmp/mtmr-charging-tests
 ```
 
 The harness checks charging conditions, burst timing, trickle intervals, and the four-particle limit without a power-state change.
 
-The full suite currently fails at the stale `testSwiftStoreAndServer` assertion in `mtmr/tests/main.swift:38`:
+The queue checks let the real eight-second display deadline expire while preserving the notification lifetime.
+They recall hidden entries without extending their lifetime.
 
-```text
-Precondition failed: After the newer entry expires, the long one shows again
+Tests use temporary sockets, directories, and a temporary home for watcher logs.
+Layout installation tests redirect every destination into temporary directories.
+Tests never install a live layout, launch the app, or control live Teams calls.
+Some tests instantiate AppKit objects, but the harnesses never present a hardware Touch Bar.
+
+## Pull requests and lint
+
+Work on a `task/*` branch and open a pull request into `main`.
+The **PR validation** workflow must pass before merge.
+The stable required check is `validate`; branch protection is configured separately.
+The workflow validates every pull request into `main`, pushes to `main`, and manual runs.
+It rejects pull requests from branches outside `task/*`.
+
+The job runs on the Apple Silicon `macos-15` hosted runner.
+It clones upstream beside the repository at the pinned commit, builds, runs all tests, and runs SwiftLint and Ruff.
+It installs development tools separately; build and test scripts perform no network access.
+Coverage tables appear in the workflow summary as information only, with no coverage threshold.
+Failed builds, tests, lint errors, or coverage tooling errors fail the check.
+SwiftLint warnings do not fail the check.
+
+Install lint tools in your development environment, then run from the repository root:
+
+```bash
+brew install swiftlint
+python3 -m venv /tmp/touchbar-dev-environment
+source /tmp/touchbar-dev-environment/bin/activate
+python3 -m pip install ruff coverage
+swiftlint lint --config .swiftlint.yml
+ruff check bin/tbctl teams tests
 ```
 
-The assertion expects a hidden long-lived entry to appear after a newer entry expires.
-`NotificationStore.expire()` deliberately leaves the area empty until arrival, swipe, or recall.
-The other notification checks and the separate Python test files pass on the reference machine.
-
-Tests use temporary sockets and do not launch the app, install layouts, or toggle live Teams controls.
-Some tests instantiate AppKit objects, but the harnesses do not present a hardware Touch Bar.
+`.swiftlint.yml` scopes correctness checks to `mtmr/overlay` and `tests` without imposing new style rules.
+`ruff.toml` checks Python in `teams` and `tests`, plus `bin/tbctl` and `teams/teams-watch`.
+The configs allow existing long lines and test imports that follow harness-path setup.
+Development tools are not product dependencies.
 
 ## Run, stop, rebuild
 
@@ -203,7 +267,7 @@ Universal control instead loads DisplayServices at runtime because CoreDisplay b
 | The Touch Bar stays unchanged. | Check `pgrep -lx MTMR`, then inspect `/usr/bin/log show --last 5m --predicate 'process == "MTMR"'`. |
 | The log reports notification width below minimum. | The actual 340 pt App Controls zone leaves 292 pt at width 1004. See the layout geometry guide. |
 | AppKit reports conflicting widths 32 and 38. | The upstream controls can emit a cosmetic constraint warning. Check visible behaviour separately. |
-| The full test runner stops early. | Run later Python files separately and inspect the known stale notification assertion above. |
+| The full test runner stops early. | Run later Python files separately and read the first failed assertion. |
 
 ## Updating to a newer upstream
 

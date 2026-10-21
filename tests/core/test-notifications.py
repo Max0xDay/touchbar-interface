@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run: python3 mtmr/tests/test-notifications.py (arm64 macOS with CLT).
+"""Run: python3 tests/core/test-notifications.py (arm64 macOS with CLT).
 Uses temporary sockets only; does not launch MTMR.app or change its settings.
 """
 
@@ -18,24 +18,16 @@ repositoryRoot = Path(__file__).resolve().parents[2]
 cliPath = repositoryRoot / "bin/tbctl"
 
 
-def renderedActualLayout(directory):
-    """layouts/actual.json with ${REPO} substituted, exactly as `tbctl layout actual` would install it."""
-    rendered = subprocess.run([str(repositoryRoot / "bin/tbctl"), "layout", "actual", "--dry-run"],
-                              capture_output=True, text=True, check=True, timeout=10).stdout
-    layoutPath = Path(directory) / "actual.json"
-    layoutPath.write_text(rendered)
-    return layoutPath
-
-
-def compileSwiftHarness(executablePath, sources, compilationArguments=()):
-    return subprocess.run(["swiftc", "-target", "arm64-apple-macosx11.0", "-swift-version", "5",
-                           *map(str, sources), *compilationArguments, "-o", executablePath],
-                          capture_output=True, text=True, timeout=180)
-
+import sys
+sys.path.insert(0, str(repositoryRoot / "tests/support"))
+from harness import compileSwiftHarness
 
 class NotificationTests(unittest.TestCase):
     def runCli(self, *arguments):
-        return subprocess.run([str(cliPath), *arguments], capture_output=True, text=True, timeout=8)
+        command = [str(cliPath)]
+        if os.environ.get("MTMR_PYTHON_COVERAGE"):
+            command = [sys.executable, "-m", "coverage", "run", "--parallel-mode", str(cliPath)]
+        return subprocess.run([*command, *arguments], capture_output=True, text=True, timeout=8)
 
     def fakeRoundTrip(self, arguments, expectedCommand, reply):
         with tempfile.TemporaryDirectory(prefix="tbctl-") as temporaryDirectory:
@@ -121,31 +113,15 @@ class NotificationTests(unittest.TestCase):
                 self.assertEqual(execution.returncode, 3)
                 self.assertIn("MTMR is not running (no socket)", execution.stderr)
 
-    def testLayout(self):
-        with tempfile.TemporaryDirectory() as temporaryDirectory:
-            items = json.loads(renderedActualLayout(temporaryDirectory).read_text())
-        self.assertIsInstance(items, list)
-        identifiers = [item["id"] for item in items if "id" in item]
-        self.assertEqual(len(identifiers), len(set(identifiers)))
-        self.assertNotIn("teams-mic", identifiers)
-        self.assertNotIn("teams-camera", identifiers)
-        self.assertEqual([item["watcher"] for item in items if "watcher" in item],
-                         [[str(repositoryRoot / "teams/teams-watch")]])
-        appControls = [item for item in items if item["type"] == "appControls"]
-        self.assertEqual(len(appControls), 1)
-        self.assertEqual(appControls[0]["align"], "right")
-        self.assertEqual(appControls[0]["panels"], ["system", "teams", "ytmusic", "praatvol", "stats", "fan"])
-        self.assertEqual(appControls[0]["teams"], {"directory": str(repositoryRoot / "teams")})
-
     def compileHarness(self, temporaryDirectory):
         executablePath = str(Path(temporaryDirectory) / "notification-harness")
         sources = [repositoryRoot / "mtmr/overlay/NotificationLayoutSolver.swift",
                    repositoryRoot / "mtmr/overlay/NotificationAreaView.swift",
-                   repositoryRoot / "mtmr/overlay/NotificationTouchBarItem.swift",
+                   repositoryRoot / "mtmr/overlay/NotificationStore.swift",
                    repositoryRoot / "mtmr/overlay/NotificationSocketServer.swift",
                    repositoryRoot / "mtmr/overlay/LiveButtonStore.swift",
                    repositoryRoot / "mtmr/overlay/TouchBarIcon.swift",
-                   repositoryRoot / "mtmr/tests/main.swift"]
+                   repositoryRoot / "tests/core/main.swift"]
         compilation = compileSwiftHarness(executablePath, sources)
         self.assertEqual(compilation.returncode, 0, compilation.stderr)
         return executablePath
@@ -203,8 +179,60 @@ class NotificationTests(unittest.TestCase):
             self.assertEqual(exchange({"cmd": "button", "id": "fixture-mic", "tint": "#34c759"}), {"ok": True})
             self.assertEqual(exchange({"cmd": "buttons"})["buttons"][0]["icon"], "mic.fill")
 
+    def checkExtensionCommands(self, socketPath):
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.settimeout(5)
+            connection.connect(socketPath)
+            for commandName in ("app", "apps", "fan", "teams"):
+                command = {"cmd": commandName, "id": "fixture", "extra": {"value": 7}}
+                reply = self.exchange(connection, json.dumps(command).encode())
+                self.assertEqual(reply, {"ok": True, "forwarded": command}, "Handlers receive the entire command")
+                rejection = self.exchange(connection, json.dumps(dict(command, reject=True)).encode())
+                self.assertEqual(rejection, {"ok": False, "error": "Fixture rejection"})
+
+    def checkParticleCommands(self, socketPath):
+        commands = [{"cmd": "particles"}, {"cmd": "particles", "preset": "usb"},
+                    {"cmd": "particles", "trickle": True}, {"cmd": "particles", "trickle": False},
+                    {"cmd": "particles", "count": 200, "seconds": 10, "style": "sparks", "color": "#123aBC"}]
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.settimeout(5)
+            connection.connect(socketPath)
+            for command in commands:
+                self.assertEqual(self.exchange(connection, json.dumps(command).encode()), {"ok": True})
+            self.assertFalse(self.exchange(connection, b'{"cmd":"particles","count":0}')["ok"])
+
+    def checkQueueLimit(self, socketPath):
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.settimeout(5)
+            connection.connect(socketPath)
+            self.assertEqual(self.exchange(connection, b'{"cmd":"clear"}'), {"ok": True})
+            for index in range(256):
+                command = {"cmd": "notify", "text": str(index), "title": "Heading", "seconds": 60}
+                self.assertEqual(self.exchange(connection, json.dumps(command).encode()), {"ok": True})
+            inspection = self.exchange(connection, b'{"cmd":"inspect-store"}')
+            self.assertEqual(inspection, {"ok": True, "count": 256, "text": "255", "title": "Heading"})
+            rejected = self.exchange(connection, b'{"cmd":"notify","text":"overflow"}')
+            self.assertFalse(rejected["ok"], "Full queues reject new notifications")
+            self.assertIn("256", rejected["error"])
+            self.assertEqual(self.exchange(connection, b'{"cmd":"clear"}'), {"ok": True})
+
+    def checkMultipleClients(self, socketPath):
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as first:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as second:
+                for connection in (first, second):
+                    connection.settimeout(5)
+                    connection.connect(socketPath)
+                first.sendall(b'{"cmd":')
+                self.assertEqual(self.exchange(second, b'{"cmd":"clear"}'), {"ok": True},
+                                 "An incomplete client must not block another client")
+                first.sendall(b'"clear"}\n{"cmd":"buttons"}\n')
+                with first.makefile("rb") as replies:
+                    self.assertEqual(json.loads(replies.readline()), {"ok": True})
+                    self.assertEqual(json.loads(replies.readline())["buttons"][0]["id"], "fixture-mic",
+                                     "Batched lines receive separate ordered replies")
+
     def waitForServer(self, harness, socketPath):
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + 15
         readinessError = None
         while time.monotonic() < deadline:
             if harness.poll() is not None:
@@ -232,6 +260,10 @@ class NotificationTests(unittest.TestCase):
                 self.waitForServer(harness, socketPath)
                 self.checkServerCommands(socketPath)
                 self.checkLiveServerCommands(socketPath)
+                self.checkExtensionCommands(socketPath)
+                self.checkParticleCommands(socketPath)
+                self.checkQueueLimit(socketPath)
+                self.checkMultipleClients(socketPath)
             finally:
                 Path(temporaryDirectory, "stop").touch()
                 stdout, stderr = harness.communicate(timeout=8)
@@ -246,7 +278,7 @@ class LayoutSolverTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="mtmr-layout-test-") as temporaryDirectory:
             executablePath = str(Path(temporaryDirectory) / "layout-solver-tests")
             sources = [repositoryRoot / "mtmr/overlay/NotificationLayoutSolver.swift",
-                       repositoryRoot / "mtmr/tests/LayoutSolverTests.swift"]
+                       repositoryRoot / "tests/core/LayoutSolverTests.swift"]
             compilation = compileSwiftHarness(executablePath, sources)
             self.assertEqual(compilation.returncode, 0, compilation.stderr)
             execution = subprocess.run([executablePath, str(repositoryRoot / "layouts/template.json")],
@@ -259,54 +291,6 @@ class LayoutSolverTests(unittest.TestCase):
             print(execution.stdout, end="")
 
 
-class LayoutViewTests(unittest.TestCase):
-    def testContainerAndUnchangedStack(self):
-        with tempfile.TemporaryDirectory(prefix="mtmr-layout-view-test-") as temporaryDirectory:
-            executablePath = str(Path(temporaryDirectory) / "layout-view-tests")
-            sourceDirectory = repositoryRoot / "build/work/src"
-            sources = sorted(sourcePath for sourcePath in sourceDirectory.rglob("*.swift") if sourcePath.name != "main.swift")
-            sources.append(repositoryRoot / "mtmr/tests/LayoutViewTests.swift")
-            sources.append(repositoryRoot / "mtmr/tests/LiveButtonTests.swift")
-            bridgeObjects = sorted((repositoryRoot / "build/work/objects").glob("*.o"))
-            self.assertTrue(bridgeObjects, "Run mtmr/build.sh before the view tests")
-            sdkExecution = subprocess.run(["xcrun", "--show-sdk-path"], capture_output=True, text=True, timeout=10)
-            self.assertEqual(sdkExecution.returncode, 0, sdkExecution.stderr)
-            sdkPath = sdkExecution.stdout.strip()
-            compilationArguments = ["-sdk", sdkPath,
-                                    "-import-objc-header", str(sourceDirectory / "CBridge/TouchBarPrivateApi-Bridging.h"),
-                                    "-I", str(sourceDirectory / "CBridge"),
-                                    "-F", str(Path(sdkPath) / "System/Library/PrivateFrameworks"),
-                                    "-module-cache-path", str(Path(temporaryDirectory) / "modulecache"),
-                                    *map(str, bridgeObjects)]
-            for framework in ("Cocoa", "CoreLocation", "CoreAudio", "AVFoundation", "IOKit", "EventKit",
-                              "ScriptingBridge", "ServiceManagement", "DFRFoundation", "MultitouchSupport",
-                              "CoreBrightness", "CoreDisplay"):
-                compilationArguments.extend(["-framework", framework])
-            compilation = compileSwiftHarness(executablePath, sources, compilationArguments)
-            self.assertEqual(compilation.returncode, 0, compilation.stderr)
-            execution = subprocess.run([executablePath, str(renderedActualLayout(temporaryDirectory))],
-                                       capture_output=True, text=True, timeout=20)
-            self.assertEqual(execution.returncode, 0, execution.stderr)
-            self.assertIn("Layout view checks passed (no Touch Bar created)", execution.stdout)
-            self.assertEqual(execution.stderr.count("MTMR layout warning:"), 2, "Warn on narrow solves, not on text changes")
-            self.assertEqual(execution.stderr.count("MTMR item minWidth rejected:"), 2)
-            print(execution.stdout, end="")
-
-
-class NotificationAreaTests(unittest.TestCase):
-    def testTextSwipeAndTransitions(self):
-        with tempfile.TemporaryDirectory(prefix="mtmr-area-test-") as temporaryDirectory:
-            executablePath = str(Path(temporaryDirectory) / "notification-area-tests")
-            sources = [repositoryRoot / "mtmr/overlay/NotificationLayoutSolver.swift",
-                       repositoryRoot / "mtmr/overlay/NotificationAreaView.swift",
-                       repositoryRoot / "mtmr/overlay/NotificationTouchBarItem.swift",
-                       repositoryRoot / "mtmr/overlay/TouchBarIcon.swift",
-                       repositoryRoot / "mtmr/tests/NotificationAreaTests.swift"]
-            compilation = compileSwiftHarness(executablePath, sources)
-            self.assertEqual(compilation.returncode, 0, compilation.stderr)
-            execution = subprocess.run([executablePath], capture_output=True, text=True, timeout=10)
-            self.assertEqual(execution.returncode, 0, execution.stderr)
-            self.assertIn("Notification area checks passed", execution.stdout)
 
 
 if __name__ == "__main__":

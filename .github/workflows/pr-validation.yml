@@ -1,0 +1,76 @@
+name: PR validation
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    # #COMPLETION_DRIVE: Hosted AppKit harnesses can run without Touch Bar hardware.
+    # #SUGGEST_VERIFY: Confirm the full suite on the first hosted run; no tests are skipped.
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify PR branch
+        if: github.event_name == 'pull_request'
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: |
+          case "${HEAD_BRANCH}" in
+            task/*) ;;
+            *) printf 'Pull requests into main must use a task/* branch.\n' >&2; exit 1 ;;
+          esac
+
+      - name: Check out pinned upstream MTMR
+        run: |
+          git clone --no-checkout https://github.com/Toxblh/MTMR.git ../MTMR
+          git -C ../MTMR checkout --detach 94fc98cceff94cf69a2e7c28f726cf35ab93c461
+
+      - name: Build native app
+        run: mtmr/build.sh
+
+      - name: Run all tests
+        run: bash tests/run-tests.sh
+
+      - name: Install Python development tools
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/lint-environment"
+          "${RUNNER_TEMP}/lint-environment/bin/python3" -m pip install coverage ruff
+          printf '%s\n' "${RUNNER_TEMP}/lint-environment/bin" >> "${GITHUB_PATH}"
+
+      - name: Report informational coverage
+        run: |
+          set -euo pipefail
+          bash tests/coverage.sh | tee "${RUNNER_TEMP}/coverage-report.txt"
+          {
+            printf '## Core coverage\n\nInformational only; no coverage threshold.\n\n```text\n'
+            awk '/^(Filename|Name)[[:space:]]/ { reporting=1 }
+                 reporting { print }
+                 /^TOTAL[[:space:]]/ { reporting=0; print "" }' "${RUNNER_TEMP}/coverage-report.txt"
+            printf '\n```\n'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Install SwiftLint
+        run: |
+          if ! brew list --versions swiftlint > /dev/null; then
+            brew install swiftlint
+          fi
+
+      - name: Lint Swift
+        run: swiftlint lint --config .swiftlint.yml
+
+      - name: Lint Python
+        run: ruff check bin/tbctl teams tests

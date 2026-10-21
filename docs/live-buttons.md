@@ -192,9 +192,9 @@ The panel's tap scripts only toggle once; the watcher confirms state.
 
 ## Verification limits
 
-Run `mtmr/build.sh` before `bash mtmr/tests/run-tests.sh` because the layout harness compiles from `build/work/src`.
-The runner discovers `test-*.py` files and stops at the first failed file.
-The [build runbook](runbook-build-mtmr.md#build) lists focused tests and the known stale notification assertion.
+Run `mtmr/build.sh` before `bash tests/run-tests.sh` because the layout harness compiles from `build/work/src`.
+The runner discovers core tests before feature tests and stops at the first failed file.
+The [build runbook](runbook-build-mtmr.md#tests-and-coverage) lists the focused tests.
 Tests use temporary sockets and fixtures rather than live Teams controls.
 The three-icon solver fixture uses width 1085 and notification width 477; the fixture does not represent the actual layout.
 The real host measures 1004 × 30 pt.
