@@ -167,7 +167,7 @@ Review and extended progress use these optional fields from protocol addendum v1
 
 The panel also accepts older version 1 snapshots without these fields.
 Review controls appear only if the source sends `review`.
-Run `python3 -I mtmr/tests/test-praatvol.py` for focused checks with a temporary fake socket.
+Run `python3 -I tests/features/test-praatvol.py` for focused checks with a temporary fake socket.
 
 ## Teams
 
@@ -245,8 +245,8 @@ Failed state deliveries retry after 5 seconds without extra CDP queries.
 Run focused fixture checks without live Teams access:
 
 ```bash
-python3 -I mtmr/tests/test-live-buttons.py
-python3 -I mtmr/tests/test-teams.py
+python3 -I tests/features/test-live-buttons.py
+python3 -I tests/features/test-teams.py
 ```
 
 Source comments retain hardware checks for duration selectors, focus events, pre-join detection, and multiple call pages.

@@ -51,7 +51,7 @@ Custom layouts can add live buttons.
 | Live buttons | The socket updates custom buttons without a layout reload. MTMR supervises watcher processes. |
 | App Controls | The registry contains seven panels; the actual layout lists six. |
 | Particles | Power notifications drive the burst and trickle. Device and display events drive blue sparks. |
-| Tests | The runner includes six Python files. A known stale notification assertion prevents a clean full-suite result. |
+| Tests | The runner separates core behaviour checks from feature tests. Coverage reports are informational. |
 
 ## Repository layout
 
@@ -61,7 +61,12 @@ mtmr/
   build.sh         native build with Command Line Tools
   patches/         patches 0001–0006, applied in order
   overlay/         Swift sources copied into the build
-  tests/           Python tests and standalone Swift harnesses
+tests/
+  core/            core tests and standalone Swift harnesses
+  features/        feature tests and standalone Swift harnesses
+  support/         shared test helpers
+  run-tests.sh     core tests, then feature tests
+  coverage.sh      informational core coverage report
 layouts/
   template.json    reference layout with an exit button and shape placeholders
   actual.json      everyday layout with universal control and App Controls
@@ -100,14 +105,64 @@ bin/tbctl particles --trickle off
 bin/tbctl particles --usb
 ```
 
-Build before the full test suite:
+## Tests and contributions
+
+Tests live in `tests/`.
+Core tests cover the basics of these core files:
+
+- `mtmr/overlay/NotificationLayoutSolver.swift`
+- `mtmr/overlay/NotificationStore.swift`
+- `mtmr/overlay/NotificationSocketServer.swift`
+- `mtmr/overlay/LiveButtonStore.swift`
+- `mtmr/overlay/LiveButtonBinding.swift`
+- `mtmr/overlay/WatcherSupervisor.swift`
+- `bin/tbctl`
+
+A change to core code **must come with a core test for the changed behaviour**.
+Feature-specific and app-specific changes need no new tests.
+All existing tests must still pass, including feature tests in `tests/features/`.
+Shared helpers live in `tests/support/`.
+
+Core tests focus on meaningful regression checks, not a coverage target.
+The coverage script runs only core tests and shows an informational report.
+
+Build first, then run the full suite and coverage report:
 
 ```bash
 mtmr/build.sh
-bash mtmr/tests/run-tests.sh
+bash tests/run-tests.sh
+bash tests/coverage.sh
 ```
 
-The build runbook lists separate tests and the known stale notification assertion.
+The coverage script prints per-file Swift coverage and the combined total.
+Python coverage uses the optional development tool `coverage.py` when available.
+Without `coverage.py`, the script reports Swift coverage only.
+The product uses only Python's standard library.
+The [build runbook](docs/runbook-build-mtmr.md#tests-and-coverage) lists focused commands and test safety boundaries.
+
+### Pull requests
+
+Work on `task/*` branches and open a pull request into `main`.
+The **PR validation** workflow must pass before merge: native build, all tests, and lint.
+Its required check is `validate`, running on the Apple Silicon `macos-15` hosted runner.
+Coverage tables appear in the workflow summary as information only; there is no coverage threshold.
+The workflow also runs on pushes to `main` and supports manual runs.
+Branch protection is configured separately.
+
+Install SwiftLint with Homebrew and install Ruff and coverage.py in a development virtual environment:
+
+```bash
+brew install swiftlint
+python3 -m venv /tmp/touchbar-dev-environment
+source /tmp/touchbar-dev-environment/bin/activate
+python3 -m pip install ruff coverage
+swiftlint lint --config .swiftlint.yml
+ruff check bin/tbctl teams tests
+```
+
+SwiftLint checks `mtmr/overlay` and `tests`; warnings do not fail validation, but errors do.
+Ruff includes the extensionless Python scripts `bin/tbctl` and `teams/teams-watch`.
+Lint configs preserve the existing style; no product dependency is added.
 
 ## Documentation
 

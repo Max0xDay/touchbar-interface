@@ -159,8 +159,8 @@ Protocol fields and selection rules appear in [app-controls.md](app-controls.md#
 Run fixture checks without live Teams controls:
 
 ```bash
-python3 -I mtmr/tests/test-live-buttons.py
-python3 -I mtmr/tests/test-teams.py
+python3 -I tests/features/test-live-buttons.py
+python3 -I tests/features/test-teams.py
 ```
 
 ## Known limits

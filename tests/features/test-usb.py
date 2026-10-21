@@ -18,7 +18,7 @@ class USBDeviceTests(unittest.TestCase):
                 ["swiftc", "-target", "arm64-apple-macosx11.0", "-swift-version", "5",
                  str(repositoryRoot / "mtmr/overlay/USBDeviceMonitor.swift"),
                  str(repositoryRoot / "mtmr/overlay/ChargingMonitor.swift"),
-                 str(repositoryRoot / "mtmr/tests/USBDeviceTests.swift"),
+                 str(repositoryRoot / "tests/features/USBDeviceTests.swift"),
                  "-framework", "Cocoa", "-framework", "IOKit", "-o", executablePath],
                 capture_output=True, text=True, timeout=120)
             self.assertEqual(compilation.returncode, 0, compilation.stderr)

@@ -238,14 +238,14 @@ These debug messages exclude notification text.
 ```bash
 MTMR_CHECKOUT=/path/to/MTMR mtmr/build.sh
 lipo -archs build/MTMR.app/Contents/MacOS/MTMR
-bash mtmr/tests/run-tests.sh
+bash tests/run-tests.sh
 git -C /path/to/MTMR status --porcelain
 ```
 
 The runner checks the pure solver, standalone views, and temporary socket harnesses without an installed layout change.
 The view harness requires a prior build because the harness compiles prepared sources and bridge objects.
 The fixture coverage includes widths, minima, right preservation, text capacity, font metrics, swipes, and transition cancellation.
-A known stale notification assertion prevents a clean full-suite result; see [the build runbook](runbook-build-mtmr.md#build).
+The full suite passes; see [the build runbook](runbook-build-mtmr.md#tests-and-coverage).
 Physical touch delivery, animation appearance, and Reduce Motion require hardware checks.
 
 To roll back, restore the earlier patches and overlay sources from version control.

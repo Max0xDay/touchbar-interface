@@ -1,0 +1,17 @@
+included:
+  - mtmr/overlay
+  - tests
+
+# Keep correctness checks without imposing a new style on existing sources.
+only_rules:
+  - compiler_protocol_init
+  - duplicate_enum_cases
+  - duplicate_imports
+  - force_cast
+  - force_try
+  - valid_ibinspectable
+
+force_cast:
+  severity: warning
+force_try:
+  severity: warning

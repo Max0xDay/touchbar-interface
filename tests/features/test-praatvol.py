@@ -18,7 +18,7 @@ class PraatvolPanelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="mtmr-praatvol-", dir="/tmp") as temporaryDirectory:
             executablePath = str(Path(temporaryDirectory) / "praatvol-tests")
             sources = [repositoryRoot / "mtmr/overlay/PraatvolClient.swift",
-                       repositoryRoot / "mtmr/tests/PraatvolPanelTests.swift"]
+                       repositoryRoot / "tests/features/PraatvolPanelTests.swift"]
             compilation = subprocess.run(
                 ["swiftc", "-target", "arm64-apple-macosx11.0", "-swift-version", "5",
                  *map(str, sources), "-o", executablePath],

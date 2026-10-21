@@ -29,7 +29,7 @@ class VolumeControlTests(unittest.TestCase):
                        repositoryRoot / "mtmr/overlay/DisplayBrightnessController.swift",
                        repositoryRoot / "mtmr/overlay/TouchBarIcon.swift",
                        repositoryRoot / "mtmr/overlay/VolumeControl.swift",
-                       repositoryRoot / "mtmr/tests/VolumeControlTests.swift"]
+                       repositoryRoot / "tests/features/VolumeControlTests.swift"]
             compilation = subprocess.run(
                 ["swiftc", "-target", "arm64-apple-macosx11.0", "-swift-version", "5",
                  *map(str, sources), "-framework", "Cocoa", "-framework", "CoreAudio", "-framework", "IOKit", "-o", executablePath],

@@ -41,7 +41,7 @@ class TeamsPanelTests(unittest.TestCase):
             executable = str(Path(directory) / "teams-tests")
             compilation = subprocess.run(["swiftc", "-target", "arm64-apple-macosx11.0", "-swift-version", "5",
                                           str(repositoryRoot / "mtmr/overlay/TeamsState.swift"),
-                                          str(repositoryRoot / "mtmr/tests/TeamsPanelTests.swift"), "-o", executable],
+                                          str(repositoryRoot / "tests/features/TeamsPanelTests.swift"), "-o", executable],
                                          capture_output=True, text=True, timeout=120)
             self.assertEqual(compilation.returncode, 0, compilation.stderr)
             execution = subprocess.run([executable], capture_output=True, text=True, timeout=10)
