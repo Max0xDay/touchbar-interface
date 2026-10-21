@@ -30,7 +30,7 @@ Patch `0004-live-buttons.patch` adds live identifiers and visibility updates wit
   Native tail truncation also handles wider Unicode glyphs.
   The character budget does not imply equal widths for all Unicode graphemes.
 - Preferred width is `Npref = max(120, ceil(maxChars * glyphWidth + 24))`.
-  Forty characters require 395 pt; the actual layout's 36 characters require 358 pt.
+  Forty characters require 395 pt; the actual layout's 28 characters require 284 pt.
 
 Icons occupy 30 pt visually, but the text calculation reserves an 18 pt slot and a 6 pt gap.
 Two-line entries use a 12 pt semibold heading and a 10 pt grey body.
@@ -47,16 +47,16 @@ The right group contains App Controls at 340 pt, including its switcher: `Rw = 3
 The actual layout contains no left Teams buttons or separate exit item.
 
 ```text
-W = 1004; padding = 16; maxChars = 36; minWidth = 358
+W = 1004; padding = 16; maxChars = 28; minWidth = 284
 Universal control: (x=0, width=30)
 Spacer:            (x=38, width=1)
 Notification:      (x=356, width=292), centre=502
 App Controls:      (x=664, width=340), trailing edge=1004
 ```
 
-The notification width is `1004 - 2 * 340 - 32 = 292`, below the 358 pt minimum.
-The solver logs a warning but preserves the right group and the fixed control.
-A right zone at most `(1004 - 358 - 32) / 2 = 307` pt preserves the minimum.
+The notification width is `1004 - 2 * 340 - 32 = 292`, at least the 284 pt preferred width and default minimum, so no below-minimum warning is logged.
+A right zone at most `(1004 - 284 - 32) / 2 = 344` pt preserves the minimum.
+The one-line label's capacity at 292 pt remains 28 characters, the same as before the declared budget was reduced; visible behaviour is unchanged.
 The particle region occupies `x=0` through the notification origin, independently of button geometry.
 
 ## Left-only scaling

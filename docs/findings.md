@@ -37,7 +37,7 @@ The upstream repository is [My TouchBar My Rules (MTMR)](https://github.com/Toxb
 - The host measures **1004 × 30 points (pt)**.
   The container's 1085 pt constant is only a fallback before usable bounds exist. **Verified from logs; Source.**
 - A 340 pt App Controls zone leaves 292 pt for notifications at that host width.
-  The actual minimum is 358 pt; a zone at most 307 pt avoids the minimum-width warning. **Source.**
+  The actual minimum (`maxChars: 28`) is 284 pt; a zone at most 344 pt avoids the minimum-width warning. **Source.**
 - The Touch Bar ignores `contentTintColor` for these controls.
   `TouchBarIcon` embeds explicit tints in images. **Verified.**
 - A view at zero alpha can still intercept touches.

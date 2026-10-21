@@ -15,7 +15,7 @@
   {
     "type": "notification",
     "align": "center",
-    "maxChars": 36,
+    "maxChars": 28,
     "defaultSeconds": 8,
     "mirror": {
       "stickyApps": ["com.microsoft.teams2", "com.microsoft.outlook"],

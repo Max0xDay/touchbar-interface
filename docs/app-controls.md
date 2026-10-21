@@ -331,8 +331,9 @@ Unknown identifiers are ignored; a list with no known identifiers uses System.
 `width` sets the complete zone width, including the switcher.
 The solver never shrinks right items.
 At the measured host width of 1004 pt, a 340 pt zone leaves 292 pt for notifications.
-The actual notification minimum is 358 pt, so MTMR logs a warning.
-A zone at most 307 pt preserves that minimum with 16 pt outer padding.
+The actual notification budget is `maxChars: 28`, giving a 284 pt preferred width and default minimum; 292 pt meets that minimum without a below-minimum warning.
+A zone at most `(1004 - 284 - 32) / 2 = 344` pt preserves that minimum with 16 pt outer padding.
+The one-line label's capacity at 292 pt remains 28 characters, the same as before the declared budget was reduced; visible behaviour is unchanged.
 
 ## Socket commands
 
