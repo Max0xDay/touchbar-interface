@@ -115,7 +115,8 @@ class NotificationTests(unittest.TestCase):
 
     def compileHarness(self, temporaryDirectory):
         executablePath = str(Path(temporaryDirectory) / "notification-harness")
-        sources = [repositoryRoot / "mtmr/overlay/NotificationLayoutSolver.swift",
+        sources = [repositoryRoot / "mtmr/overlay/DebugLog.swift",
+                   repositoryRoot / "mtmr/overlay/NotificationLayoutSolver.swift",
                    repositoryRoot / "mtmr/overlay/NotificationAreaView.swift",
                    repositoryRoot / "mtmr/overlay/NotificationStore.swift",
                    repositoryRoot / "mtmr/overlay/NotificationSocketServer.swift",

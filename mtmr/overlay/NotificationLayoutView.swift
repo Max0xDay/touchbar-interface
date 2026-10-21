@@ -193,7 +193,7 @@ final class NotificationLayoutView: NSView {
         notificationView.layoutSubtreeIfNeeded()
         if NotificationDebug.enabled {
             let labelFrame = notificationView.subviews.first?.frame ?? .zero
-            NSLog("MTMR-notif: container=%@ notification=%@ label=%@", NSStringFromSize(bounds.size), NSStringFromRect(notificationView.frame), NSStringFromRect(labelFrame))
+            debugLog(String(format: "MTMR-notif: container=%@ notification=%@ label=%@", NSStringFromSize(bounds.size), NSStringFromRect(notificationView.frame), NSStringFromRect(labelFrame)))
         }
         if solution.isBelowMinimum {
             NSLog("MTMR layout warning: W=%.2f, notification=%.0f below minimum=%.0f, hidden edge items=%@", width, solution.notification.width, options.minWidth, solution.hasHiddenItems ? "yes" : "no")

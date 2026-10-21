@@ -104,6 +104,13 @@ assemble_bundle() {
       cp "${png}" "${resources}/$(basename "${imageset}" .imageset).png"
     fi
   done
+
+  step "Installing Touch Bar branding"
+  local brandingFile
+  for brandingFile in StatusImage.png AppIcon.icns; do
+    [[ -f "${scriptDirectory}/branding/${brandingFile}" ]] || fail "missing branding file: ${scriptDirectory}/branding/${brandingFile}"
+    cp "${scriptDirectory}/branding/${brandingFile}" "${resources}/"
+  done
 }
 
 sign_and_verify() {

@@ -225,13 +225,22 @@ Reduce Motion uses 0.15-second fades without the slide.
 `fadeSeconds:0` disables these transitions.
 Generation checks and presentation-opacity samples protect rapid updates from stale animation completions.
 
-`NotificationDebug.enabled` currently defaults to true.
-`MTMR-notif:` logs include touch counts, coordinates, hierarchy, and area/container/label frames.
-These debug messages exclude notification text.
+`MTMR-notif:` debug logs are off by default.
+They include touch counts, coordinates, hierarchy, and area/container/label frames, but exclude notification text.
+Enable or disable them at runtime without rebuilding:
 
 ```bash
-/usr/bin/log show --predicate 'process == "MTMR"' --last 5m
+# Enable
+defaults write com.maxday.touchbar-interface.mtmr-dev DebugLogging -bool true
+# Disable (restore the default; run only if the key was previously set)
+defaults delete com.maxday.touchbar-interface.mtmr-dev DebugLogging
+# Read
+/usr/bin/log show --last 5m --predicate 'process == "MTMR" AND eventMessage CONTAINS "MTMR-notif"'
 ```
+
+The preference is read on every logging call; no restart is required by the logger.
+External `defaults` changes may be delayed until UserDefaults refreshes its cache, so immediate propagation is not guaranteed.
+Hierarchy logs occur when views attach, not retroactively when logging is enabled.
 
 ## Verification and rollback
 

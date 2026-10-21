@@ -51,6 +51,23 @@ The build prints a step prefix `==>` and finishes with `Built .../build/MTMR.app
 Upstream deprecation and unused-variable warnings can appear.
 The build recreates the app bundle and work directory, without a live layout change or app restart.
 
+### Branding
+
+After copying upstream images, the build installs `mtmr/branding/StatusImage.png` for both the menu bar and Touch Bar control strip, plus `AppIcon.icns` for the app icon.
+Both assets must exist; regeneration is optional and uses only AppKit and `iconutil`:
+
+```bash
+logoDirectory="$(mktemp -d /tmp/touchbar-branding.XXXXXX)"
+swift mtmr/branding/make-logo.swift "$logoDirectory"
+cp "$logoDirectory/StatusImage.png" "$logoDirectory/AppIcon.icns" mtmr/branding/
+```
+
+The temporary directory also contains the 1024 px master and all iconset sizes for review.
+Back up the committed assets before replacing them; restore them from that backup to roll back.
+Patch `0007-status-item-wide-logo` uses a variable-width menu-bar slot and sizes the template image to 18 pt high with proportional width (49.5 pt for the 88 × 32 logo).
+The Touch Bar control-strip button has no square size constraint and keeps its default proportional downscaling within the 30 pt bar.
+Hardware appearance still needs review after the next user-controlled rebuild and restart.
+
 ## Tests and coverage
 
 Core tests cover the basics of `NotificationLayoutSolver.swift`, `NotificationStore.swift`, `NotificationSocketServer.swift`, `LiveButtonStore.swift`, `LiveButtonBinding.swift`, and `WatcherSupervisor.swift` in `mtmr/overlay/`, plus `bin/tbctl`.
@@ -220,7 +237,7 @@ Fan control requires a separate ThermalForge daemon; the build neither installs 
 
 ## What the build changes versus upstream
 
-The script copies upstream into `build/work/src`, applies patches in filename order, and copies all Swift overlays into that directory.
+The script copies upstream into `build/work/src`, applies patches 0001–0007 in filename order, and copies all Swift overlays into that directory.
 The script leaves the upstream checkout unchanged.
 
 | Patch | Effect |
@@ -231,6 +248,7 @@ The script leaves the upstream checkout unchanged.
 | `0004-live-buttons` | The patch adds validated identifiers, live state, and safe preset rejection. |
 | `0005-app-controls-watchers-welcome` | The patch adds App Controls, watcher supervision, mirror setup, and welcome hooks. The patch limits redundant bar presentations. |
 | `0006-volume-button` | The patch maps upstream's `volume` item to `VolumeTouchBarItem`, which now opens universal control. |
+| `0007-status-item-wide-logo` | The patch gives the menu-bar template logo a variable-width slot and proportional sizing at 18 pt high. |
 
 Overlays implement the queue, socket, solver, live buttons, watcher supervisor, mirror, icons, and App Controls panels.
 Other overlays implement Teams state, praatvol, universal control, brightness, volume, charging particles, and USB/display monitoring.
@@ -238,7 +256,7 @@ Other overlays implement Teams state, praatvol, universal control, brightness, v
 To update patch 0005, prepare upstream with patches 0001–0004 in a scratch repository.
 Record that baseline before patch 0005 and the intended edits.
 Generate the final patch with `git diff` without `diff --git` and `index` headers.
-Keep patch 0006 separate.
+Keep patches 0006 and 0007 separate.
 Verify the complete sequence with a build.
 
 ## How the compile works (and why each flag is there)

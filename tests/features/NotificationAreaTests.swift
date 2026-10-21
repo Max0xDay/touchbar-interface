@@ -4,7 +4,7 @@ import Cocoa
 @main
 struct NotificationAreaTests {
     static func main() {
-        NotificationDebug.enabled = false
+        UserDefaults.standard.setVolatileDomain(["DebugLogging": false], forName: UserDefaults.argumentDomain)
         checkFontAndFrames()
         checkSwipeDirection()
         checkTransitions()

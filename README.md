@@ -59,7 +59,8 @@ Custom layouts can add live buttons.
 bin/tbctl          command-line client for the socket and local layout installation
 mtmr/
   build.sh         native build with Command Line Tools
-  patches/         patches 0001–0006, applied in order
+  branding/        original status/app icons and Swift generator (see branding/README.md)
+  patches/         patches 0001–0007, applied in order
   overlay/         Swift sources copied into the build
 tests/
   core/            core tests and standalone Swift harnesses
@@ -74,6 +75,8 @@ teams/             debug-port client, event-driven watcher, and tap scripts
 docs/              guides and verified findings
 build/             ignored build output
 ```
+
+Patch `0007-status-item-wide-logo` gives the menu-bar template logo a variable-width slot and proportional sizing at 18 pt high.
 
 ## Quick start
 
